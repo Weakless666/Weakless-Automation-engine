@@ -38,7 +38,7 @@ Ordered by how much risk each item removes.
 
 ### 3. Close product gaps
 9. Browser end-to-end tests for the builder (add node, connect, configure, save, test, publish).
-10. Password reset and email invitations; then MFA for staff.
+10. ~~Password reset and email invitations~~ (done 2026-11-12); MFA for staff.
 11. Typed response models so OpenAPI documents responses.
 12. Live execution updates over WebSocket or SSE if polling proves too slow.
 13. Vector search for knowledge bases once an embedding provider is chosen.

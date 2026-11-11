@@ -3,7 +3,7 @@
 REST, JSON, versioned under `/api/v1`. The complete machine-readable reference is generated from the code:
 
 - live: `GET /api/openapi.json` and interactive docs at `/api/docs`
-- committed snapshot: [docs/openapi.json](docs/openapi.json) (110 paths, 141 operations) - regenerate with `python -m app.cli export-openapi ../docs/openapi.json`
+- committed snapshot: [docs/openapi.json](docs/openapi.json) (118 paths, 149 operations) - regenerate with `python -m app.cli export-openapi ../docs/openapi.json`
 
 Request bodies are fully described in OpenAPI. Response bodies are documented as generic objects: typed response models are not declared yet.
 
@@ -37,11 +37,18 @@ Common codes: `unauthorized` 401, `forbidden` / `csrf_failed` 403, `not_found` 4
 | POST | `/auth/change-password` | Revokes other sessions |
 | GET, DELETE | `/auth/sessions`, `/auth/sessions/{id}` | |
 | GET | `/auth/login-history` | |
+| POST | `/auth/password-reset/request` | **Public.** `{email}`. Always `202`; emails a link when the account exists and SMTP is configured. `email_delivery` says whether email is set up at all |
+| POST | `/auth/password-reset/confirm` | **Public.** `{token, new_password}` |
+| POST | `/auth/invitations/inspect` | **Public.** `{token}` -> email, organization, role, whether a password must be chosen |
+| POST | `/auth/invitations/accept` | **Public.** `{token, password, full_name?}`. Starts a session like `/auth/login` |
+
+Invalid, used or expired links return `400` with code `invalid_token`.
 
 ### Platform administration (staff)
 | Method | Path | Permission |
 |---|---|---|
-| GET, POST, PATCH | `/users`, `/users/{id}` | `platform.users.manage` |
+| GET, POST, PATCH | `/users`, `/users/{id}` | `platform.users.manage`. POST without `password` sends an invitation |
+| POST | `/users/{id}/invitation`, `/users/{id}/reset-link` | `platform.users.manage`. Return `{url, expires_at[, email_sent]}` |
 | GET, PUT | `/roles`, `/roles/{key}` | read: staff; write: `platform.settings.manage` |
 | GET, PUT | `/settings`, `/settings/{key}` | `platform.settings.manage` |
 | GET, POST | `/dead-letters`, `/dead-letters/{id}/requeue` | `platform.analytics.read`, `executions.manage` |
@@ -52,7 +59,8 @@ Common codes: `unauthorized` 401, `forbidden` / `csrf_failed` 403, `not_found` 4
 | GET, POST | `/organizations` | List is scoped to the caller; create needs `platform.organizations.create` |
 | GET, PATCH, DELETE | `/organizations/{id}` | Delete archives (soft) |
 | PUT | `/organizations/{id}/client` | Client profile |
-| GET, POST, PATCH, DELETE | `/members`, `/members/{id}` | |
+| GET, POST, PATCH, DELETE | `/members`, `/members/{id}` | POST without `password` invites new people (`status: invited`, response includes `invitation`); existing accounts join directly |
+| POST | `/members/{id}/invitation` | Issue a new invitation link; the old one stops working |
 | GET, POST, DELETE | `/workspaces`, `/workspaces/{id}` | |
 
 ### Workflows

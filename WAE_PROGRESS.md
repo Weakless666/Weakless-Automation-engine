@@ -2,7 +2,7 @@
 
 Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 
-**TESTED** means automated tests exist and passed on the last run (58 backend tests on SQLite, 2026-11-11). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. The frontend has no automated tests: it typechecks, builds, and was smoke-tested against a running backend.
+**TESTED** means automated tests exist and passed on the last run (70 backend tests on SQLite, 2026-11-12). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. The frontend has no automated tests: it typechecks, builds, and was smoke-tested against a running backend.
 
 | # | Module | Backend | Frontend | Notes |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 | 11 | Analytics & Monitoring | TESTED | IMPLEMENTED | Sentry integration is wired but untested |
 | 12 | Billing & Usage | TESTED (manual provider) / IMPLEMENTED (Stripe) | IMPLEMENTED | Quotas, alerts, plan changes, period roll-over tested. Stripe Checkout never called; Stripe webhook signature and idempotency tested |
 | 13 | Notifications | TESTED | IMPLEMENTED | In-app, preferences, webhook/Slack channel delivery tested with mocks; SMTP, Discord and Telegram channels untested |
-| 14 | Admin Security & Audit | TESTED | IMPLEMENTED | See WAE_SECURITY.md for gaps (MFA, SSO, password reset) |
+| 14 | Admin Security & Audit | TESTED | IMPLEMENTED | Password reset and invitations added 2026-11-12 (tested; UI checked in the running app). Gaps: MFA, SSO |
 | - | Database migrations | TESTED on SQLite / BLOCKED on PostgreSQL | n/a | No PostgreSQL available locally |
 | - | Docker deployment | BLOCKED | BLOCKED | Written; Docker is not installed in the development environment |
 | - | CI | IMPLEMENTED | IMPLEMENTED | Workflow file written; never run (nothing has been pushed) |
@@ -30,6 +30,6 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 - WebSocket live updates (polling is used)
 - Vector / semantic knowledge search
 - Mailbox polling for the Email trigger; native database change listeners
-- MFA, SSO, self-service password reset, email invitations
+- MFA, SSO
 - Typed response models in OpenAPI
 - Redis-backed shared rate limiting

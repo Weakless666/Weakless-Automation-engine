@@ -13,6 +13,7 @@ from app.core.security import hash_password, validate_password_strength
 from app.db import utcnow
 from app.deps import Ctx, authenticate, org_ctx, platform_ctx, resolve_org
 from app.models import CLIENT_ROLES, Client, Organization, OrganizationMember, User, UserSession, Workflow, Workspace
+from app.services import accounts
 from app.services.audit import audit
 from app.services.organizations import create_organization
 from app.services.workflows import slugify
@@ -179,7 +180,7 @@ class MemberCreate(Body):
     email: EmailStr
     full_name: str = Field("", max_length=200)
     role: str
-    password: str | None = Field(None, max_length=200, description="Required when the user does not exist yet")
+    password: str | None = Field(None, max_length=200, description="Optional initial password for a new account; omit to send an invitation")
 
 
 class MemberUpdate(Body):
@@ -208,24 +209,46 @@ def add_member(body: MemberCreate, ctx: Ctx = Depends(org_ctx("members.manage"))
         raise Conflict("Weakless staff already have access to every organization")
     if user and user.deleted_at:
         raise Conflict("This account has been removed")
-    if not user:
-        if not body.password:
-            raise ValidationFailed("A password is required to create a new user")
+    if user and db.scalar(select(OrganizationMember.id).where(OrganizationMember.organization_id == ctx.org_id, OrganizationMember.user_id == user.id)):
+        raise Conflict("This user is already a member")
+    invitation = None
+    if not user and body.password:
+        # Admin-set initial password: the account is usable immediately.
         problem = validate_password_strength(body.password)
         if problem:
             raise ValidationFailed(problem)
         user = User(email=email, full_name=body.full_name or email.split("@")[0], password_hash=hash_password(body.password))
         db.add(user)
         db.flush()
-    if db.scalar(select(OrganizationMember.id).where(OrganizationMember.organization_id == ctx.org_id, OrganizationMember.user_id == user.id)):
-        raise Conflict("This user is already a member")
-    m = OrganizationMember(organization_id=ctx.org_id, user_id=user.id, role=body.role)
+        status = "active"
+    elif not user:
+        user = accounts.new_pending_user(db, email, body.full_name)
+        status = "invited"
+    elif accounts.has_password(user):
+        status = "active"  # an existing account joins directly; it already proved its owner
+    else:
+        status = "invited"  # someone else's invitation is still pending for this email
+    m = OrganizationMember(organization_id=ctx.org_id, user_id=user.id, role=body.role, status=status)
     db.add(m)
     db.flush()
-    audit(db, "member.added", ctx=ctx, resource_type="member", resource_id=m.id, meta={"email": email, "role": body.role})
+    if status == "invited":
+        invitation = accounts.invite(db, user, organization=ctx.org, invited_by=ctx.user)
+    audit(db, "member.added", ctx=ctx, resource_type="member", resource_id=m.id, meta={"email": email, "role": body.role, "status": status})
     db.commit()
     db.refresh(m)
-    return member_view(m)
+    return {**member_view(m), "invitation": invitation.view() if invitation else None}
+
+
+@router.post("/members/{member_id}/invitation")
+def resend_invitation(member_id: str, ctx: Ctx = Depends(org_ctx("members.manage"))) -> dict:
+    """Issue a new invitation link (the previous one stops working)."""
+    m = owned(ctx.db, OrganizationMember, member_id, ctx.org_id, "Member")
+    if m.status != "invited":
+        raise Conflict("This member is not waiting for an invitation")
+    invitation = accounts.invite(ctx.db, m.user, organization=ctx.org, invited_by=ctx.user)
+    audit(ctx.db, "member.invitation_resent", ctx=ctx, resource_type="member", resource_id=m.id, meta={"email": m.user.email})
+    ctx.db.commit()
+    return invitation.view()
 
 
 def _last_admin(ctx: Ctx, m: OrganizationMember) -> bool:
@@ -242,6 +265,8 @@ def update_member(member_id: str, body: MemberUpdate, ctx: Ctx = Depends(org_ctx
     m = owned(ctx.db, OrganizationMember, member_id, ctx.org_id, "Member")
     if body.role:
         _check_role(body.role)
+    if m.status == "invited" and body.status == "active":
+        raise AppError("This person has not accepted the invitation yet. Resend it instead.", code="invitation_pending", status_code=409)
     demoting = (body.role and body.role != "CLIENT_ADMIN") or body.status == "disabled"
     if demoting and _last_admin(ctx, m):
         raise AppError("An organization needs at least one active Client Admin", code="last_admin", status_code=409)

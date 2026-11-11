@@ -29,6 +29,7 @@ Automated tests pass for the following (`cd backend && pytest -q`).
 
 **Security and tenancy**
 - Unauthenticated access rejected; generic login failures; lockout; logout revocation; CSRF on cookie sessions
+- Password reset (single use, expiry, supersession, session revocation, no account enumeration) and invitations (pending accounts cannot sign in, per-organization activation, no password overwrite, resend/disable/remove invalidation, staff invitations, role limits on staff-issued reset links)
 - Cross-tenant access blocked: header spoofing, IDOR, list scoping, cross-tenant integration use
 - Role enforcement and privilege-escalation rules
 - Vault round-trip, tenant binding, key rotation; credentials absent from API responses, storage and logs
@@ -92,7 +93,7 @@ Relative to the brief:
 - **Database event trigger** - webhook-based only; no native listeners.
 - **Knowledge retrieval** - keyword (BM25) only; no embeddings.
 - **Upload File** - text content only; no binary uploads.
-- **Authentication** - no MFA, SSO, password reset or email invitations.
+- **Authentication** - no MFA or SSO. (Password reset and invitations were added on 2026-11-12; their emails are untested against a real SMTP server.)
 - **API** - response schemas are not typed in OpenAPI.
 - **Testing** - no frontend tests; no OAuth flow tests; no load tests.
 - **Rate limiting** - per process, not shared across instances.

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api, type Page } from "@/lib/api";
+import { IssuedLink, passwordProblem } from "@/components/auth-card";
 import { useSession } from "@/lib/session";
 import { fmtDate, fmtRelative, titleCase } from "@/lib/format";
 import { Badge, Button, Card, CardHeader, Checkbox, Dialog, ErrorState, Field, InlineError, Input, Notice, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Td, Textarea, Th } from "@/components/ui";
@@ -55,12 +56,21 @@ function Account() {
 function Team() {
   const qc = useQueryClient();
   const { me } = useSession();
+  const blank = { email: "", full_name: "", password: "", platform_role: "AUTOMATION_ENGINEER", method: "invite" as "invite" | "password" };
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ email: "", full_name: "", password: "", platform_role: "AUTOMATION_ENGINEER" });
+  const [f, setF] = useState(blank);
+  const [issued, setIssued] = useState<{ title: string; kind: "invitation" | "reset"; link: any } | null>(null);
   const users = useQuery({ queryKey: ["staff"], queryFn: () => api<Page<any>>("/users", { org: false, params: { limit: 200 } }) });
   const refresh = () => qc.invalidateQueries({ queryKey: ["staff"] });
-  const create = useMutation({ mutationFn: () => api("/users", { method: "POST", org: false, body: f }), onSuccess: () => { refresh(); setOpen(false); setF({ email: "", full_name: "", password: "", platform_role: "AUTOMATION_ENGINEER" }); } });
+  const create = useMutation({
+    mutationFn: () => api("/users", { method: "POST", org: false, body: { email: f.email, full_name: f.full_name, platform_role: f.platform_role, password: f.method === "password" ? f.password : null } }),
+    onSuccess: (u: any) => { refresh(); setOpen(false); setF(blank); if (u.invitation) setIssued({ title: `Invitation for ${u.email}`, kind: "invitation", link: u.invitation }); } });
   const update = useMutation({ mutationFn: (v: { id: string; body: any }) => api(`/users/${v.id}`, { method: "PATCH", org: false, body: v.body }), onSuccess: refresh });
+  const resend = useMutation({ mutationFn: (u: any) => api(`/users/${u.id}/invitation`, { method: "POST", org: false }),
+    onSuccess: (link: any, u: any) => setIssued({ title: `New invitation for ${u.email}`, kind: "invitation", link }) });
+  const resetLink = useMutation({ mutationFn: (u: any) => api(`/users/${u.id}/reset-link`, { method: "POST", org: false }),
+    onSuccess: (link: any, u: any) => setIssued({ title: `Password reset link for ${u.email}`, kind: "reset", link: { ...link, email_sent: false } }) });
+  const passwordIssue = f.method === "password" ? passwordProblem(f.password, f.password) : null;
   return (
     <Card><CardHeader title="Weakless team" description="Staff accounts have their role in every organization." actions={<Button size="sm" variant="primary" onClick={() => setOpen(true)}><Plus className="h-3.5 w-3.5" /> Add team member</Button>} />
       {users.isLoading ? <Spinner /> : users.error ? <div className="p-4"><ErrorState error={users.error} /></div> : (
@@ -73,17 +83,36 @@ function Team() {
                 <Td>{self || locked ? <span className="text-xs">{titleCase(u.platform_role.toLowerCase())}</span> : (
                   <Select aria-label="Role" className="h-8 w-48 text-xs" value={u.platform_role} onChange={(e) => update.mutate({ id: u.id, body: { platform_role: e.target.value } })}>
                     {STAFF_ROLES.filter((r) => r !== "SUPER_ADMIN" || me.user.platform_role === "SUPER_ADMIN").map((r) => <option key={r} value={r}>{titleCase(r.toLowerCase())}</option>)}</Select>)}</Td>
-                <Td><StatusBadge status={u.is_active ? "active" : "disabled"} /></Td><Td className="text-xs text-muted">{fmtRelative(u.last_login_at)}</Td>
-                <Td className="text-right">{!self && !locked && <Button size="sm" onClick={() => update.mutate({ id: u.id, body: { is_active: !u.is_active } })}>{u.is_active ? "Disable" : "Enable"}</Button>}</Td></tr>);
+                <Td><StatusBadge status={u.invitation_pending ? "invited" : u.is_active ? "active" : "disabled"} /></Td><Td className="text-xs text-muted">{fmtRelative(u.last_login_at)}</Td>
+                <Td className="text-right">{!self && !locked && (
+                  <div className="flex justify-end gap-1.5">
+                    {u.invitation_pending ? <Button size="sm" loading={resend.isPending && resend.variables?.id === u.id}
+                      onClick={() => window.confirm(`Send a new invitation to ${u.email}? The previous link stops working.`) && resend.mutate(u)}>Resend invite</Button>
+                      : u.is_active && <Button size="sm" loading={resetLink.isPending && resetLink.variables?.id === u.id}
+                        onClick={() => window.confirm(`Create a password reset link for ${u.email}? It is recorded in the audit log.`) && resetLink.mutate(u)}>Reset link</Button>}
+                    <Button size="sm" onClick={() => update.mutate({ id: u.id, body: { is_active: !u.is_active } })}>{u.is_active ? "Disable" : "Enable"}</Button>
+                  </div>)}</Td></tr>);
           })}</tbody></Table>)}
-      <div className="px-4 py-2"><InlineError error={update.error} /></div>
+      <div className="px-4 py-2"><InlineError error={update.error ?? resend.error ?? resetLink.error} /></div>
       <Dialog open={open} onClose={() => setOpen(false)} title="Add team member"
-        footer={<><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" loading={create.isPending} disabled={!f.email || !f.full_name || f.password.length < 10} onClick={() => create.mutate()}>Create account</Button></>}>
+        footer={<><Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="primary" loading={create.isPending} disabled={!f.email.includes("@") || !f.full_name.trim() || !!passwordIssue} onClick={() => create.mutate()}>{f.method === "invite" ? "Send invitation" : "Create account"}</Button></>}>
         <Field label="Email" required><Input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
         <Field label="Full name" required><Input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></Field>
         <Field label="Role"><Select value={f.platform_role} onChange={(e) => setF({ ...f, platform_role: e.target.value })}>{STAFF_ROLES.filter((r) => r !== "SUPER_ADMIN" || me.user.platform_role === "SUPER_ADMIN").map((r) => <option key={r} value={r}>{titleCase(r.toLowerCase())}</option>)}</Select></Field>
-        <Field label="Initial password" hint="At least 10 characters with an uppercase letter and a digit."><Input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
+        <fieldset className="space-y-2">
+          <legend className="mb-1 text-xs font-medium text-muted">How should they get access?</legend>
+          <label className="flex cursor-pointer items-start gap-2 text-sm"><input type="radio" name="staff-method" className="mt-0.5 accent-[rgb(var(--primary))]" checked={f.method === "invite"} onChange={() => setF({ ...f, method: "invite" })} />
+            <span>Send an invitation<span className="block text-xs text-muted">They choose their own password.</span></span></label>
+          <label className="flex cursor-pointer items-start gap-2 text-sm"><input type="radio" name="staff-method" className="mt-0.5 accent-[rgb(var(--primary))]" checked={f.method === "password"} onChange={() => setF({ ...f, method: "password" })} />
+            <span>Set a password for them</span></label>
+        </fieldset>
+        {f.method === "password" && <Field label="Initial password" error={f.password && passwordIssue ? passwordIssue : null} hint="At least 10 characters with an uppercase letter and a digit.">
+          <Input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>}
         <InlineError error={create.error} />
+      </Dialog>
+      <Dialog open={!!issued} onClose={() => setIssued(null)} title={issued?.title ?? ""} footer={<Button variant="primary" onClick={() => setIssued(null)}>Done</Button>}>
+        {issued && <IssuedLink link={issued.link} kind={issued.kind} />}
       </Dialog>
     </Card>
   );

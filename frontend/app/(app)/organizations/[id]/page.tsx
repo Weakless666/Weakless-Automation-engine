@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { api, type Page } from "@/lib/api";
+import { IssuedLink, passwordProblem } from "@/components/auth-card";
 import { useSession } from "@/lib/session";
 import { fmtRelative, titleCase } from "@/lib/format";
 import { Button, Card, CardHeader, Dialog, ErrorState, Field, InlineError, Input, Notice, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Td, Textarea, Th } from "@/components/ui";
@@ -71,17 +72,29 @@ function Profile({ org }: { org: any }) {
 
 function Members({ org }: { org: any }) {
   const qc = useQueryClient();
-  const { me } = useSession();
+  const { me, can } = useSession();
   const canManage = org.permissions.includes("members.manage");
+  const blank = { email: "", full_name: "", role: "CLIENT_MEMBER", password: "", method: "invite" as "invite" | "password" };
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ email: "", full_name: "", role: "CLIENT_MEMBER", password: "" });
+  const [form, setForm] = useState(blank);
+  const [issued, setIssued] = useState<{ title: string; kind: "invitation" | "reset"; link: any } | null>(null);
   const members = useQuery({ queryKey: ["members", org.id], queryFn: () => api<Page<any>>("/members", { org: org.id, params: { limit: 200 } }) });
   const refresh = () => qc.invalidateQueries({ queryKey: ["members", org.id] });
   const add = useMutation({
-    mutationFn: () => api("/members", { method: "POST", org: org.id, body: { email: form.email, full_name: form.full_name, role: form.role, password: form.password || null } }),
-    onSuccess: () => { refresh(); setAdding(false); setForm({ email: "", full_name: "", role: "CLIENT_MEMBER", password: "" }); } });
+    mutationFn: () => api("/members", { method: "POST", org: org.id, body: { email: form.email, full_name: form.full_name, role: form.role,
+      password: form.method === "password" ? form.password : null } }),
+    onSuccess: (m: any) => {
+      refresh(); setAdding(false); setForm(blank);
+      if (m.invitation) setIssued({ title: `Invitation for ${m.email}`, kind: "invitation", link: m.invitation });
+      else if (form.method === "invite") setIssued({ title: `${m.email} was added`, kind: "invitation", link: null });
+    } });
   const update = useMutation({ mutationFn: (v: { id: string; body: any }) => api(`/members/${v.id}`, { method: "PATCH", org: org.id, body: v.body }), onSuccess: refresh });
   const remove = useMutation({ mutationFn: (id: string) => api(`/members/${id}`, { method: "DELETE", org: org.id }), onSuccess: refresh });
+  const resend = useMutation({ mutationFn: (m: any) => api(`/members/${m.id}/invitation`, { method: "POST", org: org.id }),
+    onSuccess: (link: any, m: any) => setIssued({ title: `New invitation for ${m.email}`, kind: "invitation", link }) });
+  const resetLink = useMutation({ mutationFn: (m: any) => api(`/users/${m.user_id}/reset-link`, { method: "POST", org: false }),
+    onSuccess: (link: any, m: any) => setIssued({ title: `Password reset link for ${m.email}`, kind: "reset", link: { ...link, email_sent: false } }) });
+  const passwordIssue = form.method === "password" ? passwordProblem(form.password, form.password) : null;
 
   return (
     <Card>
@@ -102,22 +115,39 @@ function Members({ org }: { org: any }) {
               <Td className="text-xs text-muted">{fmtRelative(m.last_login_at)}</Td>
               <Td className="text-right">{canManage && m.user_id !== me.user.id && (
                 <div className="flex justify-end gap-1.5">
-                  <Button size="sm" onClick={() => update.mutate({ id: m.id, body: { status: m.status === "active" ? "disabled" : "active" } })}>{m.status === "active" ? "Disable" : "Enable"}</Button>
+                  {m.status === "invited" && <Button size="sm" loading={resend.isPending && resend.variables?.id === m.id}
+                    onClick={() => window.confirm(`Send a new invitation to ${m.email}? The previous link stops working.`) && resend.mutate(m)}>Resend invite</Button>}
+                  {m.status === "active" && can("platform.users.manage") && <Button size="sm" loading={resetLink.isPending && resetLink.variables?.id === m.id}
+                    onClick={() => window.confirm(`Create a password reset link for ${m.email}? It is recorded in the audit log.`) && resetLink.mutate(m)}>Reset link</Button>}
+                  <Button size="sm" onClick={() => update.mutate({ id: m.id, body: { status: m.status === "disabled" ? "active" : "disabled" } })}>{m.status === "disabled" ? "Enable" : m.status === "invited" ? "Cancel invite" : "Disable"}</Button>
                   <Button size="sm" variant="danger" aria-label={`Remove ${m.email}`} onClick={() => window.confirm(`Remove ${m.email} from ${org.name}?`) && remove.mutate(m.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
                 </div>)}</Td>
             </tr>
           ))}</tbody>
         </Table>
       )}
-      <div className="px-4 pb-3"><InlineError error={update.error ?? remove.error} /></div>
+      <div className="px-4 pb-3"><InlineError error={update.error ?? remove.error ?? resend.error ?? resetLink.error} /></div>
       <Dialog open={adding} onClose={() => setAdding(false)} title="Add member"
-        footer={<><Button onClick={() => setAdding(false)}>Cancel</Button><Button variant="primary" loading={add.isPending} disabled={!form.email} onClick={() => add.mutate()}>Add member</Button></>}>
+        footer={<><Button onClick={() => setAdding(false)}>Cancel</Button>
+          <Button variant="primary" loading={add.isPending} disabled={!form.email.includes("@") || !!passwordIssue} onClick={() => add.mutate()}>{form.method === "invite" ? "Send invitation" : "Add member"}</Button></>}>
         <Field label="Email" required><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} autoFocus /></Field>
         <Field label="Full name"><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></Field>
         <Field label="Role"><Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>{CLIENT_ROLES.map((r) => <option key={r} value={r}>{titleCase(r.toLowerCase())}</option>)}</Select></Field>
-        <Field label="Initial password" hint="Required for people who do not have an account yet. At least 10 characters with an uppercase letter and a digit. Share it securely; they can change it under Settings.">
-          <Input type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
+        <fieldset className="space-y-2">
+          <legend className="mb-1 text-xs font-medium text-muted">How should they get access?</legend>
+          <label className="flex cursor-pointer items-start gap-2 text-sm"><input type="radio" name="method" className="mt-0.5 accent-[rgb(var(--primary))]" checked={form.method === "invite"} onChange={() => setForm({ ...form, method: "invite" })} />
+            <span>Send an invitation<span className="block text-xs text-muted">They choose their own password. People who already have an account join right away.</span></span></label>
+          <label className="flex cursor-pointer items-start gap-2 text-sm"><input type="radio" name="method" className="mt-0.5 accent-[rgb(var(--primary))]" checked={form.method === "password"} onChange={() => setForm({ ...form, method: "password" })} />
+            <span>Set a password for them<span className="block text-xs text-muted">Only for new accounts. You share the password yourself.</span></span></label>
+        </fieldset>
+        {form.method === "password" && (
+          <Field label="Initial password" error={form.password && passwordIssue ? passwordIssue : null} hint="At least 10 characters with an uppercase letter and a digit.">
+            <Input type="password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
+        )}
         <InlineError error={add.error} />
+      </Dialog>
+      <Dialog open={!!issued} onClose={() => setIssued(null)} title={issued?.title ?? ""} footer={<Button variant="primary" onClick={() => setIssued(null)}>Done</Button>}>
+        {issued?.link ? <IssuedLink link={issued.link} kind={issued.kind} /> : <Notice tone="success">They already had an account, so they were added directly and can sign in to {org.name} now.</Notice>}
       </Dialog>
     </Card>
   );

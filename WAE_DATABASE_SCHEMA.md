@@ -1,6 +1,6 @@
 # WAE Database Schema
 
-Source of truth: `backend/app/models.py` (49 tables). Migrations: `backend/alembic/versions/`.
+Source of truth: `backend/app/models.py` (50 tables). Migrations: `backend/alembic/versions/`.
 
 ## Conventions
 
@@ -20,6 +20,7 @@ Source of truth: `backend/app/models.py` (49 tables). Migrations: `backend/alemb
 | `users` | Accounts. `platform_role` is set for Weakless staff, NULL for client users. | unique `email`; check on `platform_role` |
 | `user_sessions` | Server-side sessions (revocable), per-session CSRF token | index `user_id` |
 | `login_history` | Every sign-in attempt | index `email`, `created_at` |
+| `user_tokens` | Password reset and invitation links (SHA-256 of the token only), single use, with expiry | unique `token_hash`; check on `purpose`; index (user, purpose) |
 | `roles`, `permissions`, `role_permissions` | RBAC grants (seeded, editable) | unique keys; unique (role, permission) |
 
 ### Tenancy
@@ -80,7 +81,7 @@ Source of truth: `backend/app/models.py` (49 tables). Migrations: `backend/alemb
 | `billing_events` | Subscription and payment-provider events (idempotent on provider event id) |
 | `system_settings` | Platform configuration (non-secret) |
 
-The brief's entity list maps one-to-one onto these tables. Additions beyond it: `user_sessions`, `login_history`, `clients`, `industry_packages`, `industry_package_items`, `oauth_states`, `notification_preferences`, `notification_channels`, `notification_deliveries`, `generated_documents`.
+The brief's entity list maps one-to-one onto these tables. Additions beyond it: `user_sessions`, `login_history`, `user_tokens`, `clients`, `industry_packages`, `industry_package_items`, `oauth_states`, `notification_preferences`, `notification_channels`, `notification_deliveries`, `generated_documents`.
 
 ## Tenant isolation in the database
 
@@ -105,5 +106,6 @@ The application sets both settings at the start of every transaction (`app/db.py
 |---|---|
 | `0001` | Complete schema, generated from the models and hand-adjusted so the two circular foreign keys (`workflows.current_version_id`, `automation_templates.current_version_id`) are added after both tables exist |
 | `0002` | Row Level Security (PostgreSQL only) |
+| `0003` | `user_tokens` for password reset and invitations |
 
 Verified locally on SQLite: upgrade, `alembic check` (no drift), downgrade to base, upgrade again.

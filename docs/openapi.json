@@ -49,6 +49,180 @@
         }
       }
     },
+    "/api/v1/auth/password-reset/request": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Password Reset Request",
+        "description": "Always answers the same way, whether or not the account exists.",
+        "operationId": "password_reset_request_api_v1_auth_password_reset_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Password Reset Request Api V1 Auth Password Reset Request Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password-reset/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Password Reset Confirm",
+        "operationId": "password_reset_confirm_api_v1_auth_password_reset_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetConfirmBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Password Reset Confirm Api V1 Auth Password Reset Confirm Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/invitations/inspect": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Invitation Inspect",
+        "operationId": "invitation_inspect_api_v1_auth_invitations_inspect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Invitation Inspect Api V1 Auth Invitations Inspect Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/invitations/accept": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Invitation Accept",
+        "description": "Accept an invitation and start a session.",
+        "operationId": "invitation_accept_api_v1_auth_invitations_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Invitation Accept Api V1 Auth Invitations Accept Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/logout": {
       "post": {
         "tags": [
@@ -386,6 +560,95 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Create Staff Api V1 Users Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/invitation": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Resend Staff Invitation",
+        "operationId": "resend_staff_invitation_api_v1_users__user_id__invitation_post",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Resend Staff Invitation Api V1 Users  User Id  Invitation Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/reset-link": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Issue Reset Link",
+        "description": "Staff-issued password reset link for any account, for when platform email is not configured\nor the person cannot reach their inbox. Single use, one hour, audited.",
+        "operationId": "issue_reset_link_api_v1_users__user_id__reset_link_post",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Issue Reset Link Api V1 Users  User Id  Reset Link Post"
                 }
               }
             }
@@ -1033,6 +1296,51 @@
         }
       }
     },
+    "/api/v1/members/{member_id}/invitation": {
+      "post": {
+        "tags": [
+          "organizations"
+        ],
+        "summary": "Resend Invitation",
+        "description": "Issue a new invitation link (the previous one stops working).",
+        "operationId": "resend_invitation_api_v1_members__member_id__invitation_post",
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Member Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Resend Invitation Api V1 Members  Member Id  Invitation Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/members/{member_id}": {
       "patch": {
         "tags": [
@@ -1220,6 +1528,60 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Delete Workspace Api V1 Workspaces  Workspace Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/locate/{kind}/{resource_id}": {
+      "get": {
+        "tags": [
+          "workflows"
+        ],
+        "summary": "Locate",
+        "description": "Staff only: which organization owns a workflow or agent, so a deep link can open in the right tenant.",
+        "operationId": "locate_api_v1_locate__kind___resource_id__get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "resource_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Resource Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Locate Api V1 Locate  Kind   Resource Id  Get"
                 }
               }
             }
@@ -4522,13 +4884,13 @@
       }
     },
     "/api/v1/hooks/{endpoint_key}": {
-      "post": {
+      "get": {
         "tags": [
           "inbound"
         ],
         "summary": "Inbound",
         "description": "Unique per-trigger URL. Authenticity is established by the endpoint's signature scheme.",
-        "operationId": "inbound_api_v1_hooks__endpoint_key__post",
+        "operationId": "inbound_api_v1_hooks__endpoint_key__get",
         "parameters": [
           {
             "name": "endpoint_key",
@@ -4561,13 +4923,13 @@
           }
         }
       },
-      "get": {
+      "post": {
         "tags": [
           "inbound"
         ],
         "summary": "Inbound",
         "description": "Unique per-trigger URL. Authenticity is established by the endpoint's signature scheme.",
-        "operationId": "inbound_api_v1_hooks__endpoint_key__post",
+        "operationId": "inbound_api_v1_hooks__endpoint_key__get",
         "parameters": [
           {
             "name": "endpoint_key",
@@ -4602,13 +4964,13 @@
       }
     },
     "/api/v1/hooks/resume/{execution_id}/{token}": {
-      "post": {
+      "get": {
         "tags": [
           "inbound"
         ],
         "summary": "Resume Link",
         "description": "Resume an execution paused on a Wait node. The unguessable per-execution token is the credential.",
-        "operationId": "resume_link_api_v1_hooks_resume__execution_id___token__post",
+        "operationId": "resume_link_api_v1_hooks_resume__execution_id___token__get",
         "parameters": [
           {
             "name": "execution_id",
@@ -4650,13 +5012,13 @@
           }
         }
       },
-      "get": {
+      "post": {
         "tags": [
           "inbound"
         ],
         "summary": "Resume Link",
         "description": "Resume an execution paused on a Wait node. The unguessable per-execution token is the credential.",
-        "operationId": "resume_link_api_v1_hooks_resume__execution_id___token__post",
+        "operationId": "resume_link_api_v1_hooks_resume__execution_id___token__get",
         "parameters": [
           {
             "name": "execution_id",
@@ -6839,6 +7201,41 @@
   },
   "components": {
     "schemas": {
+      "AcceptBody": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 10,
+            "title": "Token"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Password"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "AcceptBody"
+      },
       "AgentBody": {
         "properties": {
           "name": {
@@ -7481,7 +7878,7 @@
               }
             ],
             "title": "Password",
-            "description": "Required when the user does not exist yet"
+            "description": "Optional initial password for a new account; omit to send an invitation"
           }
         },
         "additionalProperties": false,
@@ -7978,6 +8375,43 @@
         "type": "object",
         "title": "PublishBody"
       },
+      "ResetConfirmBody": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 10,
+            "title": "Token"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "New Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "new_password"
+        ],
+        "title": "ResetConfirmBody"
+      },
+      "ResetRequestBody": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "ResetRequestBody"
+      },
       "ResumeBody": {
         "properties": {
           "node_id": {
@@ -8084,9 +8518,17 @@
             "title": "Full Name"
           },
           "password": {
-            "type": "string",
-            "maxLength": 200,
-            "title": "Password"
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password",
+            "description": "Omit to send an invitation instead"
           },
           "platform_role": {
             "type": "string",
@@ -8098,7 +8540,6 @@
         "required": [
           "email",
           "full_name",
-          "password",
           "platform_role"
         ],
         "title": "StaffCreate"
@@ -8357,6 +8798,22 @@
         "additionalProperties": false,
         "type": "object",
         "title": "TemplateUpdate"
+      },
+      "TokenBody": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 10,
+            "title": "Token"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "TokenBody"
       },
       "ToolBody": {
         "properties": {

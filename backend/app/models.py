@@ -98,6 +98,26 @@ class UserSession(Base, Timestamps):
     revoked_at: Mapped[datetime | None] = ts()
 
 
+class UserToken(Base):
+    """Single-use account links: password resets and invitations. Only a SHA-256 of the
+    token is stored; the raw token exists only in the link sent to the person."""
+
+    __tablename__ = "user_tokens"
+    __table_args__ = (
+        CheckConstraint("purpose IN ('password_reset', 'invitation')", name="purpose"),
+        Index("ix_user_tokens_user_purpose", "user_id", "purpose"),
+    )
+    id: Mapped[uuid.UUID] = pk()
+    user_id: Mapped[uuid.UUID] = fk("users.id", index=False)
+    organization_id: Mapped[uuid.UUID | None] = org_fk(nullable=True)  # invitation target; NULL for resets and staff invites
+    purpose: Mapped[str] = mapped_column(String(30), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = ts(nullable=False)
+    used_at: Mapped[datetime | None] = ts()
+    created_by: Mapped[uuid.UUID | None] = fk("users.id", nullable=True, ondelete="SET NULL", index=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+
+
 class LoginHistory(Base):
     __tablename__ = "login_history"
     id: Mapped[uuid.UUID] = pk()

@@ -12,8 +12,13 @@ What is implemented, where, and how it is verified. "Tested" means an automated 
 | Brute force | Per-IP and per-email login rate limit; lock for 15 min after 8 failures; generic error; constant-time dummy hash for unknown accounts | Tested |
 | Login history, session list, remote sign-out | `/auth/login-history`, `/auth/sessions` | Code |
 | Password change | Revokes all other sessions | Code |
+| Password reset | Single-use link, 1 hour, only a SHA-256 of the token stored; a newer link supersedes older ones; the request endpoint answers identically whether or not the account exists; completing it revokes all sessions and clears lockout | Tested |
+| Staff-issued reset links | For when email is not configured. `platform.users.manage` only (client admins cannot reset other accounts, because a person can belong to several organizations); only a Super Admin can issue one for a Super Admin; audited | Tested |
+| Invitations | Single-use link, 7 days. Invited accounts cannot sign in until accepted. Accepting activates only the inviting organization's membership. An invitation never overwrites an existing password: for an account that already has one, accepting requires it. Resending, disabling or removing the member invalidates the old link; an invited member cannot be switched to active without accepting | Tested |
 
-Not implemented: multi-factor authentication, SSO/OIDC login, self-service password reset, email invitations (admins set an initial password).
+Residual risk: when platform email is not configured, admins receive the invitation link to pass on. Whoever holds a link for an account that has no password yet can choose that password. The link is shown once and expires in 7 days; configure SMTP so links go straight to the invited person.
+
+Not implemented: multi-factor authentication, SSO/OIDC login.
 
 ## Authorization
 - **RBAC**: nine roles, 35 permissions, checked by a dependency on every endpoint. Tested per role, including that clients cannot reach platform administration.
@@ -78,7 +83,7 @@ Sensitive operations write `audit_logs` in the same transaction as the change: a
 
 ## Known gaps
 - Row Level Security unverified on PostgreSQL (above).
-- No MFA, SSO or password reset.
+- No MFA or SSO.
 - Rate limiting is not shared across API instances.
 - No automated dependency or container scanning is configured.
 - The frontend has no Content-Security-Policy header (the API has one).

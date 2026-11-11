@@ -29,10 +29,10 @@ backend/
     integrations/   provider catalog + adapters, OAuth, connection lifecycle
     services/       workflows, executions, webhooks, events, scheduler, approvals, usage, billing, analytics, notifications
     templates/      template library, industry packages, install/update service
-    models.py       complete schema (49 tables)
+    models.py       complete schema (50 tables)
     cli.py          operational commands
-  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security)
-  tests/            58 tests: engine, security, platform/e2e, operations
+  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links)
+  tests/            70 tests: engine, security, accounts, platform/e2e, operations
 frontend/           Next.js application
 deploy/             PostgreSQL role bootstrap, backup script
 docker-compose.yml  single-host deployment
@@ -82,7 +82,7 @@ Open http://localhost:3000 and sign in with the bootstrap admin. The frontend pr
 ### 3. Tests
 
 ```bash
-cd backend && pytest -q          # 58 tests, SQLite, no network access needed
+cd backend && pytest -q          # 70 tests, SQLite, no network access needed
 cd frontend && npm run typecheck && npm run build
 ```
 

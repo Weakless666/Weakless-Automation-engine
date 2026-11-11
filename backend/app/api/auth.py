@@ -21,6 +21,7 @@ from app.deps import Ctx, client_ip, platform_ctx, user_ctx
 from app.models import (
     PLATFORM_ROLES, LoginHistory, Organization, OrganizationMember, Permission, Role, RolePermission, SystemSetting, User, UserSession,
 )
+from app.services import accounts
 from app.services.audit import audit
 from app.services.notifications import notify
 
@@ -37,7 +38,7 @@ class LoginBody(Body):
 
 def user_view(u: User) -> dict:
     return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "platform_role": u.platform_role, "is_active": u.is_active,
-            "last_login_at": iso(u.last_login_at), "created_at": iso(u.created_at)}
+            "invitation_pending": not accounts.has_password(u), "last_login_at": iso(u.last_login_at), "created_at": iso(u.created_at)}
 
 
 @router.post("/auth/login")
@@ -62,6 +63,9 @@ def login(body: LoginBody, request: Request, response: Response, db: Session = D
     assert user is not None
     if user.locked_until and user.locked_until > now:
         fail("locked")
+    if not accounts.has_password(user):
+        verify_password(body.password, _DUMMY_HASH)  # invited, not accepted yet: same timing as a wrong password
+        fail("invitation_pending")
     if not verify_password(body.password, user.password_hash):
         user.failed_login_count += 1
         if user.failed_login_count >= MAX_FAILED_LOGINS:
@@ -73,10 +77,15 @@ def login(body: LoginBody, request: Request, response: Response, db: Session = D
         fail("bad_password")
     if not user.is_active:
         fail("disabled")
-    user.failed_login_count, user.locked_until, user.last_login_at = 0, None, now
+    return _start_session(db, user, ip, ua, response)
+
+
+def _start_session(db: Session, user: User, ip: str | None, ua: str, response: Response, reason: str | None = None) -> dict:
+    s = get_settings()
+    user.failed_login_count, user.locked_until, user.last_login_at = 0, None, utcnow()
     sess = UserSession(user_id=user.id, ip=ip, user_agent=ua, csrf_token=random_token(24), expires_at=session_expiry())
     db.add(sess)
-    db.add(LoginHistory(user_id=user.id, email=email, success=True, ip=ip, user_agent=ua))
+    db.add(LoginHistory(user_id=user.id, email=user.email, success=True, reason=reason, ip=ip, user_agent=ua))
     db.flush()
     token = create_session_token(user.id, sess.id, sess.expires_at)
     db.commit()
@@ -84,6 +93,80 @@ def login(body: LoginBody, request: Request, response: Response, db: Session = D
                         max_age=s.session_hours * 3600, path="/")
     # `token` supports non-browser API clients; the browser app relies on the HttpOnly cookie + CSRF header.
     return {"token": token, "csrf_token": sess.csrf_token, "expires_at": iso(sess.expires_at), "user": user_view(user)}
+
+
+def _public_limit(request: Request, bucket: str, email: str | None = None) -> None:
+    s = get_settings()
+    ip = client_ip(request)
+    if not limiter.allow(f"{bucket}:{ip}", s.auth_rate_limit_per_minute) or (
+            email and not limiter.allow(f"{bucket}-email:{email}", s.auth_rate_limit_per_minute)):
+        raise RateLimited("Too many attempts. Try again in a minute.")
+
+
+# ----------------------------------------------------------------------------- password reset
+
+
+class ResetRequestBody(Body):
+    email: EmailStr
+
+
+@router.post("/auth/password-reset/request", status_code=202)
+def password_reset_request(body: ResetRequestBody, request: Request, db: Session = Depends(get_db)) -> dict:
+    """Always answers the same way, whether or not the account exists."""
+    email = body.email.lower().strip()
+    _public_limit(request, "reset", email)
+    accounts.request_password_reset(db, email)
+    user = db.scalar(select(User).where(User.email == email))
+    if user:
+        audit(db, "auth.password_reset_requested", resource_type="user", resource_id=user.id, actor_email=email, meta={"ip": client_ip(request)})
+    db.commit()
+    from app.services.notifications import smtp_configured
+
+    return {"status": "accepted", "email_delivery": smtp_configured()}
+
+
+class ResetConfirmBody(Body):
+    token: str = Field(..., min_length=10, max_length=200)
+    new_password: str = Field(..., max_length=200)
+
+
+@router.post("/auth/password-reset/confirm")
+def password_reset_confirm(body: ResetConfirmBody, request: Request, db: Session = Depends(get_db)) -> dict:
+    _public_limit(request, "reset-confirm")
+    user = accounts.confirm_password_reset(db, body.token, body.new_password)
+    audit(db, "auth.password_reset_completed", resource_type="user", resource_id=user.id, actor_email=user.email, meta={"ip": client_ip(request)})
+    db.commit()
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------------------- invitations
+
+
+class TokenBody(Body):
+    token: str = Field(..., min_length=10, max_length=200)
+
+
+@router.post("/auth/invitations/inspect")
+def invitation_inspect(body: TokenBody, request: Request, db: Session = Depends(get_db)) -> dict:
+    _public_limit(request, "invite")
+    return accounts.invitation_info(db, body.token)
+
+
+class AcceptBody(Body):
+    token: str = Field(..., min_length=10, max_length=200)
+    password: str = Field(..., min_length=1, max_length=200)
+    full_name: str | None = Field(None, max_length=200)
+
+
+@router.post("/auth/invitations/accept")
+def invitation_accept(body: AcceptBody, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    """Accept an invitation and start a session."""
+    _public_limit(request, "invite")
+    org_id = accounts.find_token(db, body.token, "invitation")[0].organization_id
+    user = accounts.accept_invitation(db, body.token, body.password, body.full_name)
+    audit(db, "auth.invitation_accepted", organization_id=org_id, resource_type="user", resource_id=user.id, actor_email=user.email,
+          meta={"ip": client_ip(request)})
+    return _start_session(db, user, client_ip(request), request.headers.get("user-agent", "")[:400], response, reason="invitation")
 
 
 @router.post("/auth/logout")
@@ -175,7 +258,7 @@ def login_history(paging: Paging = Depends(), ctx: Ctx = Depends(user_ctx)) -> d
 class StaffCreate(Body):
     email: EmailStr
     full_name: str = Field(..., min_length=1, max_length=200)
-    password: str = Field(..., max_length=200)
+    password: str | None = Field(None, max_length=200, description="Omit to send an invitation instead")
     platform_role: str
 
 
@@ -204,18 +287,54 @@ def list_staff(paging: Paging = Depends(), ctx: Ctx = Depends(platform_ctx("plat
 @router.post("/users", status_code=201)
 def create_staff(body: StaffCreate, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
     _guard_role(ctx, body.platform_role)
-    problem = validate_password_strength(body.password)
-    if problem:
-        raise ValidationFailed(problem)
     email = body.email.lower().strip()
     if ctx.db.scalar(select(User.id).where(User.email == email)):
         raise Conflict("A user with this email already exists")
-    u = User(email=email, full_name=body.full_name, password_hash=hash_password(body.password), platform_role=body.platform_role)
-    ctx.db.add(u)
-    ctx.db.flush()
-    audit(ctx.db, "user.created", ctx=ctx, resource_type="user", resource_id=u.id, meta={"email": email, "platform_role": body.platform_role})
+    invitation = None
+    if body.password:
+        problem = validate_password_strength(body.password)
+        if problem:
+            raise ValidationFailed(problem)
+        u = User(email=email, full_name=body.full_name, password_hash=hash_password(body.password), platform_role=body.platform_role)
+        ctx.db.add(u)
+        ctx.db.flush()
+    else:
+        u = accounts.new_pending_user(ctx.db, email, body.full_name, platform_role=body.platform_role)
+        invitation = accounts.invite(ctx.db, u, organization=None, invited_by=ctx.user)
+    audit(ctx.db, "user.created", ctx=ctx, resource_type="user", resource_id=u.id,
+          meta={"email": email, "platform_role": body.platform_role, "invited": invitation is not None})
     ctx.db.commit()
-    return user_view(u)
+    return {**user_view(u), "invitation": invitation.view() if invitation else None}
+
+
+@router.post("/users/{user_id}/invitation")
+def resend_staff_invitation(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
+    u = ctx.db.get(User, parse_uuid(user_id, "User"))
+    if not u or u.deleted_at or not u.platform_role:
+        raise NotFound("User not found")
+    _guard_role(ctx, None, u)
+    if accounts.has_password(u):
+        raise Conflict("This person has already accepted their invitation")
+    invitation = accounts.invite(ctx.db, u, organization=None, invited_by=ctx.user)
+    audit(ctx.db, "user.invitation_resent", ctx=ctx, resource_type="user", resource_id=u.id)
+    ctx.db.commit()
+    return invitation.view()
+
+
+@router.post("/users/{user_id}/reset-link")
+def issue_reset_link(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
+    """Staff-issued password reset link for any account, for when platform email is not configured
+    or the person cannot reach their inbox. Single use, one hour, audited."""
+    u = ctx.db.get(User, parse_uuid(user_id, "User"))
+    if not u or u.deleted_at:
+        raise NotFound("User not found")
+    _guard_role(ctx, None, u)
+    if not u.is_active:
+        raise Conflict("Enable the account before issuing a reset link")
+    url, row = accounts.reset_link(ctx.db, u, created_by=ctx.user.id)
+    audit(ctx.db, "user.reset_link_issued", ctx=ctx, resource_type="user", resource_id=u.id, meta={"email": u.email})
+    ctx.db.commit()
+    return {"url": url, "expires_at": iso(row.expires_at)}
 
 
 @router.patch("/users/{user_id}")
@@ -241,6 +360,10 @@ def update_staff(user_id: str, body: StaffUpdate, ctx: Ctx = Depends(platform_ct
             raise ValidationFailed(problem)
         u.password_hash = hash_password(body.password)
         changes["password_reset"] = True
+        # A password set by an admin replaces any outstanding invitation or reset link.
+        from app.models import UserToken
+
+        ctx.db.query(UserToken).filter(UserToken.user_id == u.id, UserToken.used_at.is_(None)).update({"used_at": utcnow()})
     if changes.get("is_active") is False or changes.get("password_reset") or "platform_role" in changes:
         for s in ctx.db.scalars(select(UserSession).where(UserSession.user_id == u.id, UserSession.revoked_at.is_(None))):
             s.revoked_at = utcnow()

@@ -142,7 +142,7 @@ const STATUS_TONE: Record<string, string> = {
   COMPLETED: "success", connected: "success", active: "success", APPROVED: "success", sent: "success", processed: "success", published: "success", installed: "success",
   FAILED: "danger", error: "danger", REJECTED: "danger", failed: "danger", rejected: "danger", suspended: "danger", past_due: "danger", DEAD: "danger", canceled: "danger",
   RUNNING: "info", QUEUED: "info", PENDING: "info", RETRYING: "warning", WAITING: "warning", WAITING_APPROVAL: "warning", pending: "warning",
-  awaiting_credentials: "warning", duplicate: "neutral", ignored: "neutral", draft: "neutral", CANCELLED: "neutral", revoked: "neutral", EXPIRED: "neutral",
+  awaiting_credentials: "warning", invited: "info", duplicate: "neutral", ignored: "neutral", draft: "neutral", CANCELLED: "neutral", revoked: "neutral", EXPIRED: "neutral",
   inactive: "neutral", disabled: "neutral", trialing: "info", onboarding: "info", lead: "info", paused: "warning", churned: "neutral", archived: "neutral", deprecated: "neutral", received: "info",
 };
 
