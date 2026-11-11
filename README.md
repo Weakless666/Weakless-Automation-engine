@@ -84,7 +84,18 @@ Open http://localhost:3000 and sign in with the bootstrap admin. The frontend pr
 ```bash
 cd backend && pytest -q          # 70 tests, SQLite, no network access needed
 cd frontend && npm run typecheck && npm run build
+cd frontend && npm run e2e       # browser tests of the workflow builder (below)
 ```
+
+### 4. Browser tests
+
+`npm run e2e` (in `frontend/`) uses Playwright to drive the workflow builder like a person: create a workflow, add and connect steps by dragging, configure, save, test-run, publish, activate; validation, duplicate/delete, switch outputs, and concurrent-edit detection. It starts its own throwaway API on port 8100 (fresh `backend/e2e.db`, fixed test-only secrets, its own admin) and a production build of the web app on port 3100, so it never touches your development data and can run while the dev servers are up.
+
+- **Windows:** uses the installed Microsoft Edge; nothing to download. The backend virtual environment must exist (`backend/.venv`).
+- **macOS / Linux / CI:** run `npx playwright install chromium` once. Set `E2E_PYTHON` if `python` is not the interpreter with the backend requirements.
+- On failure, screenshots and a trace are in `frontend/test-results/`; open a trace with `npx playwright show-trace <path>/trace.zip`.
+
+CI runs these tests in the `browser tests` job.
 
 ## Database setup
 

@@ -95,7 +95,7 @@ Relative to the brief:
 - **Upload File** - text content only; no binary uploads.
 - **Authentication** - no MFA or SSO. (Password reset and invitations were added on 2026-11-12; their emails are untested against a real SMTP server.)
 - **API** - response schemas are not typed in OpenAPI.
-- **Testing** - no frontend tests; no OAuth flow tests; no load tests.
+- **Testing** - browser tests cover the workflow builder only (added 2026-11-12); no OAuth flow tests; no load tests.
 - **Rate limiting** - per process, not shared across instances.
 - **Per-step hard timeouts** - enforced between steps and by client timeouts, not by interrupting a running step.
 - **Data retention** - no clean-up jobs for logs and events.

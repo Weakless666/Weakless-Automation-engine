@@ -238,8 +238,10 @@ function SchemaFields({ schema, value, onChange, ctx, res }: { schema: Schema; v
           onChange(next);
         };
         if (s.type === "boolean") return <div key={name}><Control name={name} schema={props[name]} value={value[name]} onChange={set} ctx={ctx} res={res} /></div>;
+        // Lists, objects and condition groups contain buttons and several inputs: render them as a group, not a <label>.
+        const compound = s.type === "object" || name === "knowledge_base_ids" || (s.type === "array" && resolve(s.items, ctx.root).type === "object");
         return (
-          <Field key={name} label={s.title ?? titleCase(name)} hint={s.description} required={required.includes(name)}>
+          <Field key={name} group={compound} label={s.title ?? titleCase(name)} hint={s.description} required={required.includes(name)}>
             <Control name={name} schema={props[name]} value={value[name]} onChange={set} ctx={ctx} res={res} />
           </Field>
         );

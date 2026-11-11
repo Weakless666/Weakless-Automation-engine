@@ -66,17 +66,26 @@ export function Checkbox({ label, checked, onChange, disabled }: { label: React.
   );
 }
 
-export function Field({ label, hint, error, children, required }: { label: string; hint?: React.ReactNode; error?: string | null; children: React.ReactNode; required?: boolean }) {
-  return (
-    <label className="block">
-      <span className="mb-1 flex items-center gap-1 text-xs font-medium text-muted">
-        {label}
-        {required && <span className="text-primary" aria-hidden>*</span>}
-      </span>
-      {children}
-      {error ? <span className="mt-1 block text-xs text-danger">{error}</span> : hint ? <span className="mt-1 block text-xs text-muted/80">{hint}</span> : null}
-    </label>
+/**
+ * Form field with caption, hint and error. Wraps a single input in a <label>. Pass `group` for
+ * compound controls (lists, repeated items, several inputs): a <label> around buttons would make
+ * the caption press the first button and would give every inner control the caption as its name.
+ */
+export function Field({ label, hint, error, children, required, group }: {
+  label: string; hint?: React.ReactNode; error?: string | null; children: React.ReactNode; required?: boolean; group?: boolean;
+}) {
+  const id = useId();
+  const caption = (
+    <span id={id} className="mb-1 flex items-center gap-1 text-xs font-medium text-muted">
+      {label}
+      {required && <span className="text-primary" aria-hidden>*</span>}
+    </span>
   );
+  const note = error ? <span className="mt-1 block text-xs text-danger">{error}</span> : hint ? <span className="mt-1 block text-xs text-muted/80">{hint}</span> : null;
+  if (group) {
+    return <div role="group" aria-labelledby={id} className="block">{caption}{children}{note}</div>;
+  }
+  return <label className="block">{caption}{children}{note}</label>;
 }
 
 /* ------------------------------------------------------------------ layout */

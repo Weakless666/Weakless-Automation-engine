@@ -2,7 +2,9 @@
 const backend = process.env.BACKEND_URL || "http://localhost:8000";
 
 const nextConfig = {
-  output: "standalone",
+  // Browser tests build into their own folder so they never clash with a running dev server.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  output: process.env.NEXT_STANDALONE === "0" ? undefined : "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
   // The browser only ever talks to this origin; /api is proxied to the FastAPI backend,

@@ -26,3 +26,8 @@ Thumbs.db
 backups/
 *.db-wal
 *.db-shm
+
+# Browser tests
+frontend/.next-e2e/
+frontend/test-results/
+frontend/playwright-report/

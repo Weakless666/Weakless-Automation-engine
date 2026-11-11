@@ -21,6 +21,8 @@ type Issue = { level: "error" | "warning"; node_id: string | null; message: stri
 type BuilderCtx = { specs: Record<string, NodeSpec>; issues: Issue[]; runStatus: Record<string, string> };
 const Ctx = createContext<BuilderCtx>({ specs: {}, issues: [], runStatus: {} });
 
+const NODE_W = 224; // w-56
+const NODE_H = 88;
 const RUN_RING: Record<string, string> = { COMPLETED: "ring-success/70", FAILED: "ring-danger/80", RUNNING: "ring-info/70", WAITING: "ring-warning/70", SKIPPED: "ring-line" };
 
 const FlowNode = memo(function FlowNode({ id, data, selected }: NodeProps<WaeNode>) {
@@ -199,7 +201,7 @@ function NodePanel({ node, spec, issues, triggers, workflowId, onChange, onDelet
   );
 }
 
-function WorkflowPanel({ workflow, issues, onSelect, onReload }: { workflow: any; issues: Issue[]; onSelect: (id: string) => void; onReload: () => void }) {
+function WorkflowPanel({ workflow, issues, dirty, onSelect, onReload }: { workflow: any; issues: Issue[]; dirty: boolean; onSelect: (id: string) => void; onReload: () => void }) {
   const key = useOrgKey();
   const qc = useQueryClient();
   const [tab, setTab] = useState<"checks" | "variables" | "versions">("checks");
@@ -215,7 +217,8 @@ function WorkflowPanel({ workflow, issues, onSelect, onReload }: { workflow: any
   return (
     <div className="p-4">
       <Tabs tabs={[{ key: "checks", label: "Checks", count: issues.length }, { key: "variables", label: "Variables" }, { key: "versions", label: "Versions" }]} value={tab} onChange={setTab} />
-      {tab === "checks" && (issues.length === 0 ? <Notice tone="success">No problems found. This workflow can be published.</Notice> : (
+      {tab === "checks" && dirty && <div className="mb-3"><Notice tone="warning">You have unsaved changes. These checks are from the last save; save the draft to re-check.</Notice></div>}
+      {tab === "checks" && (issues.length === 0 ? (dirty ? null : <Notice tone="success">No problems found. This workflow can be published.</Notice>) : (
         <ul className="space-y-2">{issues.map((i, k) => (
           <li key={k}><button type="button" disabled={!i.node_id} onClick={() => i.node_id && onSelect(i.node_id)}
             className={clsx("w-full rounded-md border px-3 py-2 text-left text-xs", i.level === "error" ? "border-danger/30 bg-danger/5" : "border-warning/30 bg-warning/5", i.node_id && "hover:border-primary/50")}>
@@ -339,11 +342,31 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
 
   const addNode = (spec: NodeSpec) => {
     const id = newNodeId(spec.type, new Set(nodes.map((n) => n.id)));
-    const center = rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
     const defaults: Record<string, any> = {};
     for (const [k, p] of Object.entries<any>(spec.config_schema.properties ?? {})) if (p.default !== undefined && p.default !== null && typeof p.default !== "object") defaults[k] = p.default;
-    setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), { id, type: "wae", position: { x: center.x - 110 + (ns.length % 4) * 16, y: center.y - 40 + (ns.length % 4) * 16 }, selected: true,
+    // Next to the selected step, otherwise in the middle of the visible canvas; never on top of another step.
+    const anchor = nodes.find((n) => n.id === selected);
+    let pos: { x: number; y: number };
+    if (anchor) {
+      pos = { x: anchor.position.x + NODE_W + 80, y: anchor.position.y };
+    } else {
+      const box = document.querySelector(".react-flow")?.getBoundingClientRect();
+      const c = rf.screenToFlowPosition(box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : { x: window.innerWidth / 2, y: window.innerHeight / 2 });
+      pos = { x: c.x - NODE_W / 2, y: c.y - NODE_H / 2 };
+    }
+    const overlaps = (p: { x: number; y: number }) => nodes.some((n) => Math.abs(n.position.x - p.x) < NODE_W + 16 && Math.abs(n.position.y - p.y) < NODE_H + 24);
+    for (let i = 0; i < 50 && overlaps(pos); i++) pos = { ...pos, y: pos.y + NODE_H + 40 };
+    setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), { id, type: "wae", position: pos, selected: true,
       data: { type: spec.type, name: spec.label, config: defaults, settings: {} } }]);
+    // Bring the new step into view if it landed outside the visible canvas.
+    const box = document.querySelector(".react-flow")?.getBoundingClientRect();
+    if (box) {
+      const tl = rf.flowToScreenPosition(pos);
+      const br = rf.flowToScreenPosition({ x: pos.x + NODE_W, y: pos.y + NODE_H });
+      if (tl.x < box.left || tl.y < box.top || br.x > box.right || br.y > box.bottom) {
+        rf.setCenter(pos.x + NODE_W / 2, pos.y + NODE_H / 2, { zoom: rf.getZoom(), duration: 0 });
+      }
+    }
     setSelected(id);
     touch();
   };
@@ -435,7 +458,7 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
                 onChange={(p) => patchNode(sel.id, p)} onDelete={() => removeNode(sel.id)} onDuplicate={() => duplicate(sel.id)}
                 onTriggersChanged={async () => { const w = await api(`/workflows/${workflow.id}`); setTriggers(w.triggers); }} />
             ) : (
-              <WorkflowPanel workflow={workflow} issues={issues} onReload={() => reload()}
+              <WorkflowPanel workflow={workflow} issues={issues} dirty={dirty} onReload={() => reload()}
                 onSelect={(id) => { setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === id }))); setSelected(id); }} />
             )}
           </aside>

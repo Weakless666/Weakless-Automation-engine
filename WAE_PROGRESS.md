@@ -2,13 +2,13 @@
 
 Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 
-**TESTED** means automated tests exist and passed on the last run (70 backend tests on SQLite, 2026-11-12). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. The frontend has no automated tests: it typechecks, builds, and was smoke-tested against a running backend.
+**TESTED** means automated tests exist and passed on the last run (70 backend tests on SQLite, 2026-11-12). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: the workflow builder has Playwright browser tests (passing locally in Edge, 2026-11-12; not yet run in CI). Other screens typecheck, build and were smoke-tested against a running backend.
 
 | # | Module | Backend | Frontend | Notes |
 |---|---|---|---|---|
 | 01 | Admin Control Center | TESTED | IMPLEMENTED | All metrics come from queries; filters by date, organization, automation, status |
 | 02 | Organization & Client Management | TESTED | IMPLEMENTED | RBAC and API-layer isolation tested; PostgreSQL RLS written, not executed |
-| 03 | Visual Automation Builder | TESTED | IMPLEMENTED | Draft/publish/version/test API tested; canvas rendering checked live; interactive editing not exercised by automated tests |
+| 03 | Visual Automation Builder | TESTED | TESTED | API tests plus Playwright browser tests (4 scenarios): add, drag-connect, configure, save, reload, test run, publish, activate, validation, duplicate/delete, switch outputs, concurrent edits |
 | 04 | Workflow Execution Engine | TESTED | IMPLEMENTED | Branching, loops, waits, retries, crash recovery, dead letters, idempotency, cancellation tested; multi-worker claiming on PostgreSQL untested |
 | 05 | AI Agent Engine | TESTED | IMPLEMENTED | Tested with a stand-in Anthropic client and mocked HTTP for OpenAI-compatible, Gemini and MCP; no live model call has been made |
 | 06 | Integration Hub | TESTED (framework) / IMPLEMENTED (adapters) | IMPLEMENTED | Lifecycle, vault, health, revocation tested with Telegram, OpenAI and MCP mocks. The other adapters are implemented but have never been called, mocked or live |
@@ -26,7 +26,7 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 | - | Documentation | IMPLEMENTED | | README and six WAE_* documents |
 
 ## Not started
-- Frontend automated tests (component and browser end-to-end)
+- Browser tests for screens other than the builder
 - WebSocket live updates (polling is used)
 - Vector / semantic knowledge search
 - Mailbox polling for the Email trigger; native database change listeners
