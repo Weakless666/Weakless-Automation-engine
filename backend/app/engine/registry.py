@@ -8,6 +8,7 @@ in this codebase - user-supplied code is never executed.
 """
 from __future__ import annotations
 
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -112,6 +113,7 @@ class NodeSpec:
 
 _REGISTRY: dict[str, NodeSpec] = {}
 _loaded = False
+_load_lock = threading.RLock()
 
 
 def register(spec: NodeSpec) -> NodeSpec:
@@ -132,11 +134,18 @@ def node(type: str, category: str, label: str, description: str, config: type[No
 
 
 def load_nodes() -> None:
+    """Import the node library exactly once. Guarded by a lock: the API threadpool and
+    the worker thread can both ask for the registry at the same moment after start-up,
+    and nobody may observe it half-populated."""
     global _loaded
     if _loaded:
         return
-    _loaded = True
-    from app.engine.nodes import actions, ai, logic, triggers  # noqa: F401
+    with _load_lock:
+        if _loaded:
+            return
+        from app.engine.nodes import actions, ai, logic, triggers  # noqa: F401
+
+        _loaded = True
 
 
 def get_spec(type: str) -> NodeSpec | None:

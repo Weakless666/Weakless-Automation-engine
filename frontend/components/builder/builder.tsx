@@ -11,7 +11,7 @@ import "@xyflow/react/dist/style.css";
 import clsx from "clsx";
 import { AlertTriangle, ArrowLeft, Check, Copy, FlaskConical, History, Play, Rocket, Save, Search, Trash2 } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
-import { useOrgKey, useSession } from "@/lib/session";
+import { useLocateOrg, useOrgKey, useSession } from "@/lib/session";
 import { fmtDate, fmtDuration, fmtRelative } from "@/lib/format";
 import { SchemaForm } from "@/components/schema-form";
 import { Badge, Button, Checkbox, Code, Dialog, Field, InlineError, Input, Notice, Spinner, StatusBadge, Tabs, Textarea } from "@/components/ui";
@@ -313,6 +313,8 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
   const [selected, setSelected] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [differs, setDiffers] = useState<boolean>(Boolean(workflow.has_unpublished_changes));
+  useEffect(() => setDiffers(Boolean(workflow.has_unpublished_changes)), [workflow.has_unpublished_changes, workflow.published_version]);
   const [issues, setIssues] = useState<Issue[]>(workflow.issues ?? []);
   const [triggers, setTriggers] = useState<any>(workflow.triggers);
   const [message, setMessage] = useState<{ tone: "success" | "warning"; text: string } | null>(null);
@@ -367,7 +369,7 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
 
   const saveMut = useMutation({
     mutationFn: () => api(`/workflows/${workflow.id}/draft`, { method: "PUT", body: { definition: toDefinition(nodes, edges), base_revision: revision.current } }),
-    onSuccess: (r: any) => { revision.current = r.draft_revision; setIssues(r.issues); setTriggers(r.triggers); setDirty(false); qc.invalidateQueries({ queryKey: [key, "workflows"] }); },
+    onSuccess: (r: any) => { revision.current = r.draft_revision; setIssues(r.issues); setTriggers(r.triggers); setDirty(false); setDiffers(true); qc.invalidateQueries({ queryKey: [key, "workflows"] }); },
   });
   const save = async () => { if (dirty) await saveMut.mutateAsync(); };
   const publish = useMutation({
@@ -393,7 +395,7 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
             <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wider text-muted">
               {workflow.published_version ? `Published v${workflow.published_version}` : "Never published"}
               {workflow.is_active ? <Badge tone="success">Active</Badge> : <Badge>Inactive</Badge>}
-              {dirty ? <Badge tone="warning">Unsaved changes</Badge> : workflow.has_unpublished_changes && <Badge tone="info">Draft differs from live</Badge>}
+              {dirty ? <Badge tone="warning">Unsaved changes</Badge> : differs && workflow.published_version && <Badge tone="info">Draft differs from live</Badge>}
             </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -447,8 +449,10 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
 export function Builder({ workflowId }: { workflowId: string }) {
   const key = useOrgKey();
   const { org, can } = useSession();
+  const locating = useLocateOrg("workflow", workflowId);
   const wf = useQuery({ queryKey: [key, "workflow", workflowId], queryFn: () => api(`/workflows/${workflowId}`), enabled: !!org });
   const types = useQuery({ queryKey: ["node-types"], queryFn: () => api<{ items: NodeSpec[] }>("/node-types"), enabled: !!org, staleTime: 600_000 });
+  if (locating) return <Spinner label="Opening workflow" />;
   if (!org) return <div className="p-8"><Notice tone="warning">Select the organization this workflow belongs to.</Notice></div>;
   if (!can("workflows.write")) return <div className="p-8"><Notice tone="warning">Your role cannot edit workflows.</Notice></div>;
   if (wf.isLoading || types.isLoading) return <Spinner label="Loading builder" />;

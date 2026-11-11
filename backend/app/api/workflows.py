@@ -27,6 +27,18 @@ from app.services.executions import cancel_execution, resume_execution, retry_ex
 router = APIRouter(tags=["workflows"])
 
 
+@router.get("/locate/{kind}/{resource_id}")
+def locate(kind: str, resource_id: str, ctx: Ctx = Depends(platform_ctx())) -> dict:
+    """Staff only: which organization owns a workflow or agent, so a deep link can open in the right tenant."""
+    from app.models import AIAgent
+
+    model = {"workflow": Workflow, "agent": AIAgent}.get(kind)
+    obj = ctx.db.get(model, parse_uuid(resource_id, "Resource")) if model else None
+    if obj is None or obj.deleted_at:
+        raise NotFound("Resource not found")
+    return {"organization_id": str(obj.organization_id)}
+
+
 @router.get("/node-types")
 def node_types(ctx: Ctx = Depends(org_ctx("workflows.read"))) -> dict:
     """The controlled node registry: everything the builder can place on the canvas."""

@@ -100,6 +100,20 @@ export function useSession(): Session {
   return s;
 }
 
+/**
+ * Deep links: when staff open a workflow or agent URL with no organization selected,
+ * look up its owner and select it. Returns true while that lookup is in progress.
+ */
+export function useLocateOrg(kind: "workflow" | "agent", id: string): boolean {
+  const { org, isStaff, selectOrg } = useSession();
+  const needed = !org && isStaff;
+  const q = useQuery({ queryKey: ["locate", kind, id], queryFn: () => api<{ organization_id: string }>(`/locate/${kind}/${id}`, { org: false }), enabled: needed, retry: false });
+  useEffect(() => {
+    if (needed && q.data) selectOrg(q.data.organization_id);
+  }, [needed, q.data, selectOrg]);
+  return needed && (q.isLoading || !!q.data);
+}
+
 /** Query key prefix that changes with the selected organization, so data never leaks across a switch. */
 export function useOrgKey(): string {
   return useSession().org?.id ?? "all";

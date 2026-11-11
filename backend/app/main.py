@@ -52,6 +52,9 @@ def _error(status: int, code: str, message: str, request: Request, details=None)
 async def lifespan(app: FastAPI):
     s = get_settings()
     worker = None
+    from app.engine.registry import load_nodes
+
+    load_nodes()  # populate the node registry before any request or worker thread can ask for it
     if s.env != "test":
         from app.seed import seed_all
 
