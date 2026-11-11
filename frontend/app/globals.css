@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Weakless design tokens - dark first, violet identity. Values are RGB triplets. */
+:root {
+  --bg: 11 10 16;
+  --surface: 18 17 26;
+  --raised: 26 24 37;
+  --line: 40 37 58;
+  --fg: 236 234 246;
+  --muted: 150 146 176;
+  --primary: 139 92 246;
+  --primary-fg: 255 255 255;
+  --success: 52 211 153;
+  --warning: 251 191 36;
+  --danger: 248 113 113;
+  --info: 96 165 250;
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-fg antialiased text-sm;
+  font-feature-settings: "cv11", "ss01";
+}
+
+* {
+  @apply border-line;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--primary) / 0.7);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: rgb(var(--primary) / 0.35);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line));
+  border-radius: 8px;
+  border: 2px solid rgb(var(--bg));
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* React Flow theming */
+.react-flow {
+  --xy-background-color: rgb(var(--bg));
+  --xy-edge-stroke: rgb(var(--muted) / 0.55);
+  --xy-edge-stroke-selected: rgb(var(--primary));
+  --xy-connectionline-stroke: rgb(var(--primary));
+  --xy-handle-background-color: rgb(var(--raised));
+  --xy-handle-border-color: rgb(var(--muted));
+  --xy-controls-button-background-color: rgb(var(--surface));
+  --xy-controls-button-background-color-hover: rgb(var(--raised));
+  --xy-controls-button-color: rgb(var(--fg));
+  --xy-controls-button-border-color: rgb(var(--line));
+  --xy-minimap-background-color: rgb(var(--surface));
+  --xy-attribution-background-color: transparent;
+}
+.react-flow__attribution a {
+  color: rgb(var(--muted));
+}
+.react-flow__edge-text {
+  fill: rgb(var(--muted));
+  font-size: 10px;
+}
+.react-flow__edge-textbg {
+  fill: rgb(var(--bg));
+}
