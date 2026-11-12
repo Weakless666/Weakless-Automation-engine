@@ -97,3 +97,34 @@ test("settings: invite a staff member and see their pending invitation", async (
   await expect(page.getByText("Vault active key")).toBeVisible();
   expect(await page.content()).not.toContain("e2e-vault-key");
 });
+
+test("settings: change the data retention policy and apply it", async ({ page, api }) => {
+  const before = (await api("GET", "/settings")).items.find((i: any) => i.key === "data.retention").value;
+  try {
+    await page.goto("/settings");
+    await page.getByRole("tab", { name: "Platform" }).click();
+    const events = page.getByLabel("Inbound events");
+    await expect(events).toHaveValue(String(before.events_days));
+    await expect(page.getByLabel("Audit log and sign-in history")).toHaveValue(""); // kept forever by default
+
+    await events.fill("0");
+    await expect(page.getByRole("button", { name: "Save retention" })).toBeDisabled();
+    await events.fill("45");
+    await page.getByLabel("Audit log and sign-in history").fill("10"); // below the 30-day minimum
+    await page.getByRole("button", { name: "Save retention" }).click();
+    await expect(page.getByText(/'audit_days' must be between 30/)).toBeVisible();
+    await page.getByLabel("Audit log and sign-in history").fill("");
+    await page.getByRole("button", { name: "Save retention" }).click();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+    const saved = (await api("GET", "/settings")).items.find((i: any) => i.key === "data.retention").value;
+    expect(saved).toEqual({ ...before, events_days: 45, audit_days: null });
+
+    await page.getByRole("button", { name: "Apply now" }).click();
+    await expect(page.getByRole("status").filter({ hasText: /Nothing was old enough|deleted|removed|merged/ })).toBeVisible();
+    await page.reload();
+    await page.getByRole("tab", { name: "Platform" }).click();
+    await expect(page.getByLabel("Inbound events")).toHaveValue("45");
+  } finally {
+    await api("PUT", "/settings/data.retention", { value: before });
+  }
+});

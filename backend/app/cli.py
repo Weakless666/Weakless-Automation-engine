@@ -5,6 +5,7 @@
     python -m app.cli create-admin EMAIL       # create a SUPER_ADMIN (password from WAE_ADMIN_PASSWORD or prompt)
     python -m app.cli worker                   # run a queue worker process
     python -m app.cli rotate-keys              # re-wrap every stored secret under the active master key
+    python -m app.cli retention                # apply the data retention policy now (workers run it hourly)
     python -m app.cli export-openapi PATH      # write the OpenAPI document
 """
 from __future__ import annotations
@@ -98,6 +99,18 @@ def cmd_rotate_keys(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_retention(_: argparse.Namespace) -> int:
+    """Apply the data retention policy once (the worker also does this hourly)."""
+    from app.services.retention import get_policy, run_retention
+
+    with session_scope(bypass_rls=True) as db:
+        print("Policy:", json.dumps(get_policy(db)))
+        result = run_retention(db)
+    for key, count in result.items():
+        print(f"{key}: {count}")
+    return 0
+
+
 def cmd_export_openapi(args: argparse.Namespace) -> int:
     from app.main import create_app
 
@@ -119,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     admin.set_defaults(fn=cmd_create_admin)
     sub.add_parser("worker").set_defaults(fn=cmd_worker)
     sub.add_parser("rotate-keys").set_defaults(fn=cmd_rotate_keys)
+    sub.add_parser("retention").set_defaults(fn=cmd_retention)
     export = sub.add_parser("export-openapi")
     export.add_argument("path")
     export.set_defaults(fn=cmd_export_openapi)

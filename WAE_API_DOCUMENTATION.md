@@ -3,7 +3,7 @@
 REST, JSON, versioned under `/api/v1`. The complete machine-readable reference is generated from the code:
 
 - live: `GET /api/openapi.json` and interactive docs at `/api/docs`
-- committed snapshot: [docs/openapi.json](docs/openapi.json) (127 paths, 158 operations) - regenerate with `python -m app.cli export-openapi ../docs/openapi.json`
+- committed snapshot: [docs/openapi.json](docs/openapi.json) (128 paths, 159 operations) - regenerate with `python -m app.cli export-openapi ../docs/openapi.json`
 
 Request and response bodies are both typed in OpenAPI (198 schemas). Every operation names its success model (for example `WorkflowDetail`, `Page_ExecutionOut_`) and documents 400/401/402/403/404/409/422/429/500 as `ErrorEnvelope`. Response models list the fields a response can contain; a field the server did not set is omitted rather than sent as `null`, and models allow additional fields, so clients should ignore unknown keys. `backend/tests/test_openapi.py` fails the build if an endpoint is added without a typed response.
 
@@ -62,7 +62,8 @@ Invalid, used or expired links return `400` with code `invalid_token`.
 | POST | `/users/{id}/invitation`, `/users/{id}/reset-link` | `platform.users.manage`. Return `{url, expires_at[, email_sent]}` |
 | POST | `/users/{id}/mfa-reset` | `platform.users.manage`. Switch off someone's two-factor sign-in (lost phone) and sign them out |
 | GET, PUT | `/roles`, `/roles/{key}` | read: staff; write: `platform.settings.manage` |
-| GET, PUT | `/settings`, `/settings/{key}` | `platform.settings.manage` |
+| GET, PUT | `/settings`, `/settings/{key}` | `platform.settings.manage`. `data.retention` takes `{execution_details_days, executions_days, events_days, usage_detail_days, notifications_days, queue_jobs_days, audit_days}`: whole days, or `null` to keep forever (422 on invalid values) |
+| POST | `/retention/run` | `platform.settings.manage`. Applies the retention policy now and returns `{policy, result}` with the rows affected per category |
 | GET, POST | `/dead-letters`, `/dead-letters/{id}/requeue` | `platform.analytics.read`, `executions.manage` |
 
 ### Organizations

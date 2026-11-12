@@ -31,7 +31,7 @@ backend/
     templates/      template library, industry packages, install/update service
     models.py       complete schema (50 tables)
     cli.py          operational commands
-  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor)
+  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor, 0005 data retention)
   tests/            83 tests: engine, security, accounts, two-factor, platform/e2e, operations
 frontend/           Next.js application
 deploy/             PostgreSQL role bootstrap, backup script
@@ -183,8 +183,11 @@ python -m app.cli generate-keys             # new secret + vault key
 python -m app.cli create-admin EMAIL        # password from WAE_ADMIN_PASSWORD or prompt
 python -m app.cli worker                    # dedicated queue worker
 python -m app.cli rotate-keys               # re-wrap all stored secrets under WAE_ACTIVE_KEY_ID
+python -m app.cli retention                 # apply the data retention policy now (workers do it hourly)
 python -m app.cli export-openapi PATH
 ```
+
+**Data retention:** how long execution history, events, usage detail, notifications, queue jobs and audit entries are kept is set under Settings -> Platform; see WAE_DATABASE_SCHEMA.md.
 
 **Vault key rotation:** add a new key to `WAE_MASTER_KEYS`, set `WAE_ACTIVE_KEY_ID` to it, restart, run `rotate-keys`, then remove the old key. Losing every master key makes stored credentials unrecoverable: back the keys up separately from the database.
 

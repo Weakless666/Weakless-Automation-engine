@@ -18,7 +18,7 @@ from app.core.ratelimit import limiter
 from app.core.security import (
     SESSION_COOKIE, create_session_token, hash_password, random_token, session_expiry, validate_password_strength, verify_password,
 )
-from app.db import get_db, utcnow
+from app.db import get_db, new_session, utcnow
 from app.deps import Ctx, client_ip, platform_ctx, user_ctx
 from app.models import (
     PLATFORM_ROLES, LoginHistory, Organization, OrganizationMember, Permission, Role, RolePermission, SystemSetting, User, UserSession,
@@ -611,7 +611,7 @@ class SettingBody(Body):
 
 
 EDITABLE_SETTINGS = {"billing.default_plan": str, "ai.default": dict, "ai.model_pricing": dict, "ai.anthropic_refusal_fallback": bool,
-                     "security.staff_mfa_required": bool}
+                     "security.staff_mfa_required": bool, "data.retention": dict}
 
 
 @router.put("/settings/{key}", response_model=schemas.SettingOut)
@@ -625,6 +625,13 @@ def put_setting(key: str, body: SettingBody, ctx: Ctx = Depends(platform_ctx("pl
         for model, price in body.value.items():  # type: ignore[union-attr]
             if not isinstance(price, dict) or not all(isinstance(price.get(k), (int, float)) and price[k] >= 0 for k in ("input", "output")):
                 raise ValidationFailed(f"Price for '{model}' must be {{input: number, output: number}} in USD per million tokens")
+    if key == "data.retention":
+        from app.services.retention import validate_policy
+
+        try:
+            body.value = validate_policy(body.value)
+        except ValueError as exc:
+            raise ValidationFailed(str(exc))
     row = ctx.db.scalar(select(SystemSetting).where(SystemSetting.key == key))
     if not row:
         row = SystemSetting(key=key, value=body.value)
@@ -633,3 +640,16 @@ def put_setting(key: str, body: SettingBody, ctx: Ctx = Depends(platform_ctx("pl
     audit(ctx.db, "setting.updated", ctx=ctx, resource_type="system_setting", resource_id=key)
     ctx.db.commit()
     return {"key": key, "value": row.value}
+
+
+@router.post("/retention/run", response_model=schemas.RetentionRun)
+def run_retention_now(ctx: Ctx = Depends(platform_ctx("platform.settings.manage"))) -> dict:
+    """Apply the data retention policy immediately (workers also apply it hourly)."""
+    from app.services.retention import get_policy, run_retention
+
+    with new_session(bypass_rls=True) as db:  # the sweep spans every tenant
+        policy = get_policy(db)
+        result = run_retention(db)
+    audit(ctx.db, "retention.run", ctx=ctx, resource_type="system_setting", resource_id="data.retention", meta=result)
+    ctx.db.commit()
+    return {"policy": policy, "result": result}

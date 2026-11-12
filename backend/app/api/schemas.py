@@ -205,6 +205,11 @@ class SettingsOut(Out):
     environment: dict[str, Any] = Field(description="Which integrations are configured. Never contains secret values")
 
 
+class RetentionRun(Out):
+    policy: dict[str, int | None] = Field(description="Days kept per category; null keeps that data forever")
+    result: dict[str, int] = Field(description="Rows deleted, cleared or merged per category in this run")
+
+
 # ----------------------------------------------------------------------------- organizations
 
 
@@ -430,6 +435,7 @@ class ExecutionDetail(ExecutionOut):
     waiting: list[WaitingOut]
     steps: list[StepOut]
     documents: list[DocumentOut]
+    details_purged_at: ISO = Field(None, description="When the step log and payloads were removed by the data retention policy")
 
 
 class ResumedOut(Out):

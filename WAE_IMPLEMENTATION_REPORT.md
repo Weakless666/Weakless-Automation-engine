@@ -94,11 +94,10 @@ Relative to the brief:
 - **Knowledge retrieval** - keyword (BM25) only; no embeddings.
 - **Upload File** - text content only; no binary uploads.
 - **Authentication** - no SSO or passkeys. (Two-factor sign-in with TOTP was added on 2026-11-12, required for staff by default.) (Password reset and invitations were added on 2026-11-12; their emails are untested against a real SMTP server.)
-- **API** - response schemas are not typed in OpenAPI.
-- **Testing** - 22 browser tests cover the main user journeys on every screen (added 2026-11-12); not covered: sending real notifications, OAuth flows, Stripe checkout, load.
+- **Testing** - 25 browser tests cover the main user journeys on every screen (added 2026-11-12); not covered: sending real notifications, OAuth flows, Stripe checkout, load.
 - **Rate limiting** - per process, not shared across instances.
 - **Per-step hard timeouts** - enforced between steps and by client timeouts, not by interrupting a running step.
-- **Data retention** - no clean-up jobs for logs and events.
+- **Data retention** - configurable hourly clean-up added 2026-11-12 and tested on SQLite; the sweeps have not been timed on PostgreSQL with production-sized tables. Retention is platform-wide, not per plan.
 - **Meta and LinkedIn** - connection test and generic API call only; no purpose-built posting or ads actions.
 
 ## 5. Known limitations

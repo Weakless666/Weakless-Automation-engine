@@ -338,6 +338,7 @@ def get_execution(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("execut
                    "iteration": s.iteration, "status": s.status, "attempt": s.attempt, "input": s.input, "output": s.output, "error": s.error,
                    "started_at": iso(s.started_at), "finished_at": iso(s.finished_at), "duration_ms": s.duration_ms} for s in steps],
         "documents": [{"id": str(d.id), "name": d.name, "content_type": d.content_type, "content": d.content} for d in docs],
+        "details_purged_at": iso(ex.details_purged_at),
     }
 
 

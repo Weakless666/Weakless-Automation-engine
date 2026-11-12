@@ -32,6 +32,7 @@ from app.models import ExecutionQueueJob, TERMINAL_STATUSES, WorkflowExecution
 
 log = logging.getLogger("wae.queue")
 MAX_BUSY_DEFERRALS = 300
+RETENTION_INTERVAL_SECONDS = 3600
 
 
 def enqueue(
@@ -200,6 +201,7 @@ class Worker:
         self.worker_id = worker_id or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
         self._stop = threading.Event()
         self._last_maintenance = 0.0
+        self._last_retention = float("-inf")  # first sweep right after start-up
 
     def run_once(self) -> str | None:
         """Claim and process a single job. Returns the outcome or None if the queue is idle."""
@@ -243,6 +245,12 @@ class Worker:
                 if now - self._last_maintenance > 5:
                     self._last_maintenance = now
                     self.maintenance()
+                if now - self._last_retention > RETENTION_INTERVAL_SECONDS:
+                    self._last_retention = now
+                    from app.services.retention import run_retention
+
+                    with new_session(bypass_rls=True) as db:
+                        run_retention(db)  # batched and idempotent, so concurrent workers are safe
                 if self.run_once() is None:
                     self._stop.wait(s.worker_poll_seconds)
             except Exception:  # noqa: BLE001 - keep the worker alive

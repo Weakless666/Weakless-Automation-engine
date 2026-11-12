@@ -300,6 +300,7 @@ class WorkflowExecution(Base, Timestamps):
         UniqueConstraint("workflow_id", "idempotency_key"),
         Index("ix_workflow_executions_org_created", "organization_id", "created_at"),
         Index("ix_workflow_executions_org_status", "organization_id", "status"),
+        Index("ix_workflow_executions_status_finished", "status", "finished_at"),  # retention sweeps
     )
     id: Mapped[uuid.UUID] = pk()
     organization_id: Mapped[uuid.UUID] = org_fk()
@@ -324,6 +325,7 @@ class WorkflowExecution(Base, Timestamps):
     finished_at: Mapped[datetime | None] = ts()
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     created_by: Mapped[uuid.UUID | None] = fk("users.id", nullable=True, ondelete="SET NULL", index=False)
+    details_purged_at: Mapped[datetime | None] = ts()  # step log and payloads removed by the retention policy
 
 
 class WorkflowExecutionStep(Base):
@@ -669,6 +671,7 @@ class WebhookEvent(Base):
         UniqueConstraint("endpoint_id", "dedupe_key"),
         CheckConstraint("status IN ('received', 'rejected', 'duplicate', 'processed', 'failed', 'ignored')", name="status"),
         Index("ix_webhook_events_org_received", "organization_id", "received_at"),
+        Index("ix_webhook_events_received", "received_at"),
     )
     id: Mapped[uuid.UUID] = pk()
     organization_id: Mapped[uuid.UUID] = org_fk()
@@ -725,7 +728,7 @@ class AuditLog(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
-    __table_args__ = (Index("ix_notifications_user_read", "user_id", "read_at"),)
+    __table_args__ = (Index("ix_notifications_user_read", "user_id", "read_at"), Index("ix_notifications_created", "created_at"))
     id: Mapped[uuid.UUID] = pk()
     organization_id: Mapped[uuid.UUID | None] = org_fk(nullable=True)
     user_id: Mapped[uuid.UUID] = fk("users.id")
@@ -814,7 +817,8 @@ class Subscription(Base, Timestamps):
 
 class UsageRecord(Base):
     __tablename__ = "usage_records"
-    __table_args__ = (Index("ix_usage_records_org_period_metric", "organization_id", "period", "metric"),)
+    __table_args__ = (Index("ix_usage_records_org_period_metric", "organization_id", "period", "metric"),
+                      Index("ix_usage_records_occurred", "occurred_at"))
     id: Mapped[uuid.UUID] = pk()
     organization_id: Mapped[uuid.UUID] = org_fk()
     metric: Mapped[str] = mapped_column(String(60), nullable=False)  # executions | ai_requests | ai_input_tokens | ai_output_tokens | ai_cost_usd

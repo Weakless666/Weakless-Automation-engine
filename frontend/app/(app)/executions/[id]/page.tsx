@@ -58,12 +58,13 @@ export default function ExecutionPage({ params }: { params: Promise<{ id: string
           <span>Trigger: {e.trigger_type.replace(/_/g, " ")}</span>{e.version && <span>- version {e.version}</span>}<span>- started {fmtDate(e.started_at ?? e.created_at)}</span><span>- {fmtDuration(e.duration_ms)}</span></span>}
         actions={manage && <>
           {LIVE.includes(e.status) && <Button variant="danger" loading={cancel.isPending} onClick={() => window.confirm("Cancel this execution?") && cancel.mutate()}><Square className="h-3.5 w-3.5" /> Cancel</Button>}
-          {["FAILED", "CANCELLED"].includes(e.status) && <Button variant="primary" loading={retry.isPending}
+          {["FAILED", "CANCELLED"].includes(e.status) && !e.details_purged_at && <Button variant="primary" loading={retry.isPending}
             onClick={() => window.confirm("Run this workflow again with the same trigger data? Steps that already completed will run again.") && retry.mutate()}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button>}
         </>} />
       <div className="space-y-5">
         <InlineError error={cancel.error ?? retry.error ?? resume.error} />
         {e.error && <Notice tone="warning"><strong>{e.error.node_name ?? e.error.node_id ?? "Execution"}</strong>: {e.error.message} <span className="font-mono opacity-70">({e.error.code})</span></Notice>}
+        {e.details_purged_at && <Notice>The step log, trigger data and result of this execution were removed on {fmtDate(e.details_purged_at)} under the data retention policy. Its status, timing and error are kept.</Notice>}
         {e.retry_of_id && <Notice>This is a retry of <Link className="underline" href={`/executions/${e.retry_of_id}`}>{e.retry_of_id.slice(0, 8)}</Link>.</Notice>}
         {e.waiting.length > 0 && (
           <Card><CardHeader title="Paused" description="The execution continues automatically when the wait ends." />
@@ -77,7 +78,7 @@ export default function ExecutionPage({ params }: { params: Promise<{ id: string
         )}
         <Card>
           <CardHeader title="Steps" description={`${e.steps.length} step records in execution order`} />
-          {e.steps.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted">{LIVE.includes(e.status) ? "Waiting for a worker to pick up this execution..." : "No steps were recorded."}</p>
+          {e.steps.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted">{LIVE.includes(e.status) ? "Waiting for a worker to pick up this execution..." : e.details_purged_at ? "Step records were removed under the data retention policy." : "No steps were recorded."}</p>
             : <ul>{e.steps.map((s: any) => <Step key={s.id} s={s} />)}</ul>}
         </Card>
         <div className="grid gap-5 lg:grid-cols-2">

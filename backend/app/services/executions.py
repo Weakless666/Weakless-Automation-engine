@@ -135,6 +135,8 @@ def retry_execution(db: Session, ex: WorkflowExecution, user_id: uuid.UUID | Non
     """Start a fresh execution with the same trigger payload (a deliberate, human-initiated retry)."""
     if ex.status not in ("FAILED", "CANCELLED"):
         raise Conflict("Only failed or cancelled executions can be retried")
+    if ex.details_purged_at:
+        raise Conflict("This execution's trigger data was removed by the data retention policy, so it cannot be retried")
     wf = db.get(Workflow, ex.workflow_id)
     if not wf or wf.deleted_at:
         raise NotFound("Workflow not found")

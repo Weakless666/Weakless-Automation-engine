@@ -108,5 +108,22 @@ The application sets both settings at the start of every transaction (`app/db.py
 | `0002` | Row Level Security (PostgreSQL only) |
 | `0003` | `user_tokens` for password reset and invitations |
 | `0004` | Two-factor sign-in columns on `users` |
+| `0005` | `workflow_executions.details_purged_at` and indexes for the retention sweeps |
+
+## Data retention
+
+`app/services/retention.py` applies the `data.retention` platform setting (Settings -> Platform), hourly from every worker and on demand (`POST /api/v1/retention/run`, `python -m app.cli retention`). Sweeps delete in batches of 500 rows, at most 20 batches per category per run, so a backlog is worked off over several runs without long locks. Cut-offs fall on whole UTC days.
+
+| Setting (default) | Effect |
+|---|---|
+| `execution_details_days` (30) | Finished executions lose their step rows, trigger payload, state, variables, output and resume token; `details_purged_at` is set. Status, timing and error remain. Such executions can no longer be retried |
+| `executions_days` (365) | Finished executions are deleted with their steps, queue jobs and approvals; agent runs and generated documents are unlinked. Finished agent runs without approvals are deleted too |
+| `events_days` (30) | `webhook_events` deleted. Duplicate detection only sees stored events |
+| `usage_detail_days` (62) | `usage_records` merged into one row per organization, metric, period, workflow and UTC day (`meta.compacted_records`); period and daily totals are unchanged |
+| `notifications_days` (90) | `notifications` and `notification_deliveries` deleted |
+| `queue_jobs_days` (7) | `DONE` queue jobs deleted; `DEAD` jobs are kept |
+| `audit_days` (off) | `audit_logs` and `login_history` deleted; minimum 30 days |
+
+Always: sessions, account links and OAuth states are deleted a week after they expire. Executions that are not finished (waiting, running) are never touched. Conversations, knowledge bases and workflow versions are not subject to retention.
 
 Verified locally on SQLite: upgrade, `alembic check` (no drift), downgrade to base, upgrade again.

@@ -205,6 +205,49 @@ function Roles({ editable }: { editable: boolean }) {
   );
 }
 
+const RETENTION: { key: string; label: string; hint: string }[] = [
+  { key: "execution_details_days", label: "Execution step logs and payloads", hint: "Status, timing and errors stay; retry is no longer possible." },
+  { key: "executions_days", label: "Executions", hint: "Finished executions are deleted; analytics covers what remains." },
+  { key: "events_days", label: "Inbound events", hint: "Webhook, form and app event log. Redeliveries older than this are not recognised as duplicates." },
+  { key: "usage_detail_days", label: "Usage detail", hint: "Merged into daily totals per workflow; billing and quota numbers do not change." },
+  { key: "notifications_days", label: "Notifications", hint: "In-app notifications and channel delivery logs." },
+  { key: "queue_jobs_days", label: "Completed queue jobs", hint: "Dead letters are kept until handled." },
+  { key: "audit_days", label: "Audit log and sign-in history", hint: "At least 30 days. Leave empty to keep forever." },
+];
+
+function Retention({ policy }: { policy: Record<string, number | null> | undefined }) {
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (policy) setDraft(Object.fromEntries(RETENTION.map(({ key }) => [key, policy[key] == null ? "" : String(policy[key])])));
+  }, [policy]);
+  const value = Object.fromEntries(RETENTION.map(({ key }) => [key, draft[key]?.trim() ? Number(draft[key]) : null]));
+  const invalid = Object.values(value).some((v) => v !== null && (!Number.isInteger(v) || v < 1));
+  const save = useMutation({ mutationFn: () => api("/settings/data.retention", { method: "PUT", org: false, body: { value } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }) });
+  const runNow = useMutation({ mutationFn: () => api("/retention/run", { method: "POST", org: false }) });
+  const changed = runNow.data ? Object.entries<number>(runNow.data.result).filter(([, n]) => n > 0) : [];
+  return (
+    <Card className="lg:col-span-2"><CardHeader title="Data retention" description="Days to keep operational history for every organization. Empty keeps it forever. Workers apply the policy hourly." />
+      <div className="space-y-4 p-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {RETENTION.map(({ key, label, hint }) => (
+            <Field key={key} label={label} hint={hint}>
+              <Input type="number" min={1} inputMode="numeric" placeholder="Keep forever" value={draft[key] ?? ""} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
+            </Field>))}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="primary" loading={save.isPending} disabled={invalid}
+            onClick={() => window.confirm("Save this retention policy? Data older than these limits is deleted permanently at the next hourly run.") && save.mutate()}>Save retention</Button>
+          <Button size="sm" loading={runNow.isPending} onClick={() => window.confirm("Apply the saved retention policy now? Older data is deleted permanently.") && runNow.mutate()}>Apply now</Button>
+          {save.isSuccess && !save.isPending && <span className="text-xs text-success">Saved</span>}
+          {runNow.data && <span className="text-xs text-muted" role="status">{changed.length ? changed.map(([k, n]) => `${k.replace(/_/g, " ")}: ${n}`).join(", ") : "Nothing was old enough to remove."}</span>}
+        </div>
+        <InlineError error={save.error ?? runNow.error} />
+      </div></Card>
+  );
+}
+
 function Platform() {
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: () => api("/settings", { org: false }) });
@@ -237,6 +280,7 @@ function Platform() {
             onChange={(v) => { if (v || window.confirm("Turn off the two-factor requirement for the Weakless team? Team accounts can reach every client organization.")) { setStaffMfa(v); put.mutate({ key: "security.staff_mfa_required", value: v }); } }} />
           <p className="text-xs text-muted">Team members without it set it up at their next sign-in. Client users can switch it on for themselves under Settings.</p>
         </div></Card>
+      <Retention policy={get("data.retention")} />
       <Card><CardHeader title="AI defaults" description="Used by AI steps that do not choose a provider or model." />
         <div className="space-y-3 p-4">
           <div className="grid grid-cols-2 gap-3">
