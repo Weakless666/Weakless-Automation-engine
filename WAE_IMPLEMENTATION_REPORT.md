@@ -94,7 +94,7 @@ Relative to the brief:
 - **Knowledge retrieval** - keyword (BM25) only; no embeddings.
 - **Upload File** - text content only; no binary uploads.
 - **Authentication** - no SSO or passkeys. (Two-factor sign-in with TOTP was added on 2026-11-12, required for staff by default.) (Password reset and invitations were added on 2026-11-12; their emails are untested against a real SMTP server.)
-- **Testing** - 28 browser tests cover the main user journeys on every screen, plus phone (390 px) and tablet (768 px) layouts (added 2026-11-12); not covered: real devices and touch gestures on the builder canvas, sending real notifications, OAuth flows, Stripe checkout, load.
+- **Testing** - 29 browser tests cover the main user journeys on every screen, plus phone (390 px) and tablet (768 px) layouts (added 2026-11-12); not covered: real devices and touch gestures on the builder canvas, sending real notifications, OAuth flows, Stripe checkout, load.
 - **Rate limiting** - security-relevant limits are shared across instances through the database (added 2026-11-12); the general per-client budget is per process.
 - **Per-step hard timeouts** - enforced between steps and by client timeouts, not by interrupting a running step.
 - **Data retention** - configurable hourly clean-up added 2026-11-12 and tested on SQLite; the sweeps have not been timed on PostgreSQL with production-sized tables. Retention is platform-wide, not per plan.

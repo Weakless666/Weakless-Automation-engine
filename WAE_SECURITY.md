@@ -84,6 +84,8 @@ Residual risk: DNS rebinding between validation and connection. Use egress filte
 - One error envelope; unhandled exceptions return a generic 500 with a request id and are logged server-side. Tested.
 - Security headers on API responses (`nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, restrictive CSP, HSTS when cookies are secure) and on frontend pages.
 - CORS is limited to configured origins.
+- Frontend pages send a Content-Security-Policy with a fresh nonce per response (`frontend/middleware.ts`): only Next.js's own nonce-stamped scripts run (`'strict-dynamic'` for their chunks), no `unsafe-inline`/`unsafe-eval` for scripts in production, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri`/`form-action 'self'`, connections only to the app's own origin. Inline styles are allowed (the builder canvas and charts need them; styles cannot run code). A browser test checks the header, a new nonce per response, that the app never violates its own policy on any main screen, and that injected markup (inline event handlers, `javascript:` links, SVG script) does not execute.
+- Dependencies: CI fails on any known vulnerability in Python packages (`pip-audit`) and on high or critical ones in npm packages (`npm audit`); Dependabot opens weekly update pull requests for pip, npm and GitHub Actions. Next.js 15 pins a PostCSS with published advisories (build-time only); `package.json` overrides it with the fixed release.
 - Sign-in, reset, two-factor, invitation and hook limits are shared across instances; the general per-client API budget is per process (see WAE_ARCHITECTURE.md).
 
 ## Audit
@@ -92,6 +94,5 @@ Sensitive operations write `audit_logs` in the same transaction as the change: a
 ## Known gaps
 - No SSO or passkeys.
 - The general per-client API budget is per instance (security-relevant limits are shared). Shared limits are tested on SQLite and PostgreSQL.
-- No automated dependency or container scanning is configured.
-- The frontend has no Content-Security-Policy header (the API has one).
+- No container image scanning (dependencies are scanned; Docker images have never been built here).
 - No penetration test has been performed.

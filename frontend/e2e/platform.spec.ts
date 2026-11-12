@@ -65,6 +65,7 @@ test("the control center shows live numbers and every main screen opens without 
 
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  page.on("console", (m) => { if (/Content Security Policy|Refused to/i.test(m.text())) errors.push(`CSP: ${m.text()}`); }); // the app itself never trips its own policy
   await page.goto("/");
   await chooseOrg(page, org.name);
   await expect(page.getByRole("heading", { name: org.name })).toBeVisible();
