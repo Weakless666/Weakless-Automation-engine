@@ -366,6 +366,30 @@ class WorkflowSchedule(Base, Timestamps):
     last_run_at: Mapped[datetime | None] = ts()
 
 
+class MailboxWatch(Base, Timestamps):
+    """A Mailbox Trigger of a published workflow: which IMAP folder to poll and how far it has read.
+    ``last_uid`` is only meaningful together with ``uidvalidity`` (RFC 3501)."""
+
+    __tablename__ = "mailbox_watches"
+    __table_args__ = (UniqueConstraint("workflow_id", "node_key"), Index("ix_mailbox_watches_due", "is_active", "next_poll_at"))
+    id: Mapped[uuid.UUID] = pk()
+    organization_id: Mapped[uuid.UUID] = org_fk()
+    workflow_id: Mapped[uuid.UUID] = fk("workflows.id")
+    node_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    integration_id: Mapped[uuid.UUID] = fk("integrations.id")
+    folder: Mapped[str] = mapped_column(String(200), default="INBOX", nullable=False)
+    poll_minutes: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    mark_seen: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    filters: Mapped[dict] = js()  # from_contains, subject_contains
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    next_poll_at: Mapped[datetime | None] = ts()
+    last_polled_at: Mapped[datetime | None] = ts()
+    uidvalidity: Mapped[int | None] = mapped_column(BigInteger)
+    last_uid: Mapped[int | None] = mapped_column(BigInteger)
+    failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(500))
+
+
 class AppEventSubscription(Base):
     """Which published workflow trigger listens to which application event (synced on publish and
     activation), so emitting an event is an indexed lookup instead of reading every workflow."""
@@ -918,4 +942,5 @@ TENANT_TABLES = (
     "integrations", "integration_credentials", "oauth_states", "webhook_endpoints", "webhook_events",
     "approval_requests", "notification_channels", "subscriptions", "usage_records", "generated_documents",
     "app_event_subscriptions", "usage_counters",  # 0006
+    "mailbox_watches",  # 0008
 )

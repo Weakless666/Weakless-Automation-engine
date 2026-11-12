@@ -221,6 +221,10 @@ class Worker:
         with new_session(bypass_rls=True) as db:
             run_due_schedules(db)
         with new_session(bypass_rls=True) as db:
+            from app.services.mailbox import poll_due_mailboxes
+
+            poll_due_mailboxes(db)
+        with new_session(bypass_rls=True) as db:
             expire_approvals(db)
         with new_session(bypass_rls=True) as db:
             from app.services.billing import roll_periods

@@ -12,7 +12,7 @@ from app.core.errors import Conflict, ValidationFailed
 from app.core.security import random_token
 from app.engine.graph import NODE_ID, has_errors, validate_definition
 from app.models import (
-    AppEventSubscription, WebhookEndpoint, Workflow, WorkflowConnection, WorkflowNode, WorkflowSchedule, WorkflowVersion, Workspace,
+    AppEventSubscription, Integration, MailboxWatch, WebhookEndpoint, Workflow, WorkflowConnection, WorkflowNode, WorkflowSchedule, WorkflowVersion, Workspace,
 )
 from app.services.scheduler import next_run, valid_cron
 
@@ -193,7 +193,52 @@ def sync_triggers(db: Session, wf: Workflow) -> None:
         if not wf.is_active:
             sch.next_run_at = None
     sync_event_subscriptions(db, wf, nodes)
+    sync_mailbox_watches(db, wf, nodes)
     db.flush()
+
+
+def sync_mailbox_watches(db: Session, wf: Workflow, nodes: list[dict]) -> None:
+    """Mirror the published version's Mailbox Triggers. Only mail that arrives while the workflow is
+    active counts: on each activation, and when the mailbox or folder changes, the watch starts over
+    from the newest message."""
+    from app.db import utcnow
+
+    wanted: dict[str, dict] = {}
+    for n in nodes:
+        if n.get("type") != "trigger.mailbox":
+            continue
+        cfg = n.get("config") or {}
+        try:
+            integration_id = uuid.UUID(str(cfg.get("integration_id")))
+        except ValueError:
+            raise ValidationFailed(f"Mailbox Trigger '{n['id']}' needs an IMAP Mailbox integration")
+        integration = db.get(Integration, integration_id)
+        if not integration or integration.organization_id != wf.organization_id or integration.deleted_at or integration.provider_key != "imap":
+            raise ValidationFailed(f"Mailbox Trigger '{n['id']}': the selected IMAP Mailbox integration does not exist in this organization")
+        wanted[n["id"]] = {"integration_id": integration_id, "folder": str(cfg.get("folder") or "INBOX")[:200],
+                           "poll_minutes": max(1, min(60, int(cfg.get("poll_minutes") or 2))), "mark_seen": bool(cfg.get("mark_as_read")),
+                           "filters": {"from_contains": str(cfg.get("from_contains") or ""), "subject_contains": str(cfg.get("subject_contains") or "")}}
+    existing = {w.node_key: w for w in db.scalars(select(MailboxWatch).where(MailboxWatch.workflow_id == wf.id))}
+    for key, watch in existing.items():
+        if key not in wanted:
+            db.delete(watch)
+    for key, spec in wanted.items():
+        watch = existing.get(key)
+        if watch is None:
+            watch = MailboxWatch(organization_id=wf.organization_id, workflow_id=wf.id, node_key=key, **spec)
+            db.add(watch)
+        elif (watch.integration_id, watch.folder) != (spec["integration_id"], spec["folder"]):
+            watch.uidvalidity = watch.last_uid = None  # a different mailbox: begin from its newest message
+        for field, value in spec.items():
+            setattr(watch, field, value)
+        if wf.is_active and watch.is_active is False:  # re-activated: begin at the newest message
+            watch.next_poll_at, watch.failures, watch.last_error = utcnow(), 0, None
+            watch.uidvalidity = watch.last_uid = None
+        elif wf.is_active and watch.next_poll_at is None:
+            watch.next_poll_at = utcnow()
+        watch.is_active = wf.is_active
+        if not wf.is_active:
+            watch.next_poll_at = None
 
 
 def sync_event_subscriptions(db: Session, wf: Workflow, nodes: list[dict]) -> None:

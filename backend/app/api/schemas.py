@@ -319,9 +319,22 @@ class ScheduleOut(Out):
     last_run_at: ISO
 
 
+class MailboxWatchOut(Out):
+    node_id: str
+    integration_id: str
+    folder: str
+    is_active: bool
+    poll_minutes: int
+    next_poll_at: ISO
+    last_polled_at: ISO
+    watching: bool = Field(description="True once the first poll has recorded where new mail starts")
+    last_error: str | None
+
+
 class TriggersOut(Out):
     endpoints: list[TriggerEndpointOut]
     schedules: list[ScheduleOut]
+    mailboxes: list[MailboxWatchOut] = Field(default_factory=list)
 
 
 class WorkflowOut(Out):

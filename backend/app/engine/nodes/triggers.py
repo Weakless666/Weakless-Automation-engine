@@ -53,6 +53,15 @@ class AppEventConfig(NodeConfig):
     event_type: str = Field(..., min_length=1, description="Event name, e.g. 'workflow.failed' or 'crm.*'")
 
 
+class MailboxConfig(NodeConfig):
+    integration_id: str = Field(..., description="IMAP Mailbox integration to watch")
+    folder: str = Field("INBOX", min_length=1, max_length=200, description="Folder to watch")
+    poll_minutes: int = Field(2, ge=1, le=60, description="How often to check for new mail")
+    mark_as_read: bool = Field(False, description="Mark handled messages as read in the mailbox")
+    from_contains: str = Field("", max_length=200, description="Only start for senders containing this text (empty = all)")
+    subject_contains: str = Field("", max_length=200, description="Only start for subjects containing this text (empty = all)")
+
+
 class SharedSecretConfig(NodeConfig):
     rate_limit_per_minute: int = Field(120, ge=1, le=6000)
 
@@ -71,6 +80,12 @@ node("trigger.database_event", "trigger", "Database Event Trigger",
 node("trigger.email", "trigger", "Email Trigger",
      "Start from an inbound-email webhook (mail provider inbound parse / forwarder) authenticated with a shared secret header.",
      SharedSecretConfig, output_schema=_HTTP_OUT, icon="mail")(_passthrough)
+node("trigger.mailbox", "trigger", "Mailbox Trigger",
+     "Start for each new email in an IMAP mailbox (Gmail, Outlook, any mail host). Only mail that arrives after activation counts.",
+     MailboxConfig, providers=["imap"],
+     output_schema={"subject": {"type": "string"}, "from": {"type": "object"}, "to": {"type": "array"}, "text": {"type": "string"},
+                    "html": {"type": "string"}, "date": {"type": "string"}, "message_id": {"type": "string"}, "attachments": {"type": "array"}},
+     icon="inbox")(_passthrough)
 node("trigger.message", "trigger", "Incoming Message Trigger", "Start when a chat provider delivers an incoming message webhook.", MessageConfig,
      output_schema={**_HTTP_OUT, "text": {"type": "string"}, "from": {"type": "string"}}, icon="message-circle")(_passthrough)
 node("trigger.payment", "trigger", "Payment Event Trigger", "Start on a verified payment provider webhook event.", PaymentConfig,

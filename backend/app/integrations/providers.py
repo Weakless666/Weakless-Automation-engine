@@ -404,6 +404,20 @@ class Smtp(Adapter):
         return {"accepted": True}
 
 
+class Imap(Adapter):
+    """Mailbox access for the Mailbox Trigger (app/integrations/imap.py); no node actions."""
+
+    service = "IMAP"
+
+    def test(self, c: Conn) -> dict:
+        from app.integrations import imap
+
+        return imap.test(c)
+
+    def actions(self):
+        return {}
+
+
 # ------------------------------------------------------------------ data & CRM
 
 
@@ -893,6 +907,14 @@ PROVIDERS: dict[str, ProviderDef] = {p.key: p for p in [
         Field("host", "SMTP host"), Field("port", "Port", placeholder="587"), Field("username", "Username", required=False),
         Field("password", "Password", secret=True, required=False), Field("from_address", "From address"),
     ]),
+    ProviderDef("imap", "IMAP Mailbox", "Communication", "basic", Imap(), fields=[
+        Field("host", "IMAP host", placeholder="imap.example.com"),
+        Field("port", "Port", required=False, placeholder="993"),
+        Field("security", "Encryption", required=False, placeholder="ssl", help="ssl (port 993, default) or starttls (port 143). Unencrypted connections are refused."),
+        Field("username", "Username"),
+        Field("password", "Password", secret=True, help="For Gmail and Outlook use an app password."),
+    ], setup="Used by the Mailbox Trigger to start workflows from new email. Gmail: enable IMAP and create an app password. "
+             "Microsoft 365: IMAP with basic authentication may be disabled by your tenant."),
     # Productivity
     ProviderDef("google_calendar", "Google Calendar", "Productivity", "oauth2", GoogleCalendar(),
                 oauth=_google("https://www.googleapis.com/auth/calendar.events"), setup=_OAUTH_SETUP.format(G="GOOGLE")),

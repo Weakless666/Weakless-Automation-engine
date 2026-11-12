@@ -21,6 +21,7 @@ from app.models import (
     EXECUTION_STATUSES, ApprovalRequest, ExecutionQueueJob, GeneratedDocument, Organization, WebhookEndpoint, Workflow,
     WorkflowExecution, WorkflowExecutionStep, WorkflowSchedule, WorkflowVersion, Workspace,
 )
+from app.models import MailboxWatch
 from app.services import workflows as wfs
 from app.services.approvals import decide_approval
 from app.services.audit import audit
@@ -120,6 +121,10 @@ def _triggers(ctx: Ctx, wf: Workflow) -> dict:
                        "rate_limit_per_minute": e.rate_limit_per_minute, "last_received_at": iso(e.last_received_at)} for e in eps],
         "schedules": [{"node_id": s.node_key, "cron": s.cron, "timezone": s.timezone, "is_active": s.is_active,
                        "next_run_at": iso(s.next_run_at), "last_run_at": iso(s.last_run_at)} for s in schedules],
+        "mailboxes": [{"node_id": m.node_key, "integration_id": str(m.integration_id), "folder": m.folder, "is_active": m.is_active,
+                       "poll_minutes": m.poll_minutes, "next_poll_at": iso(m.next_poll_at), "last_polled_at": iso(m.last_polled_at),
+                       "watching": m.last_uid is not None, "last_error": m.last_error}
+                      for m in ctx.db.scalars(select(MailboxWatch).where(MailboxWatch.workflow_id == wf.id))],
     }
 
 
