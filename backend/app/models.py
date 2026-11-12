@@ -366,6 +366,20 @@ class WorkflowSchedule(Base, Timestamps):
     last_run_at: Mapped[datetime | None] = ts()
 
 
+class AppEventSubscription(Base):
+    """Which published workflow trigger listens to which application event (synced on publish and
+    activation), so emitting an event is an indexed lookup instead of reading every workflow."""
+
+    __tablename__ = "app_event_subscriptions"
+    __table_args__ = (UniqueConstraint("workflow_id", "node_key"), Index("ix_app_event_subscriptions_org_exact", "organization_id", "exact_type"))
+    id: Mapped[uuid.UUID] = pk()
+    organization_id: Mapped[uuid.UUID] = org_fk()
+    workflow_id: Mapped[uuid.UUID] = fk("workflows.id")
+    node_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    pattern: Mapped[str] = mapped_column(String(120), nullable=False)
+    exact_type: Mapped[str | None] = mapped_column(String(120))  # set for exact patterns; NULL for wildcards ("*", "crm.*")
+
+
 class ExecutionQueueJob(Base, Timestamps):
     """Durable job queue (table ``execution_queues``). Workers claim rows with
     ``FOR UPDATE SKIP LOCKED`` on PostgreSQL; ``DEAD`` rows are the dead-letter queue."""
@@ -830,6 +844,20 @@ class UsageRecord(Base):
     occurred_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
 
 
+class UsageCounter(Base):
+    """Running total per organization, billing period and metric, maintained with every usage record.
+    Quota checks read these few rows instead of summing the period's records."""
+
+    __tablename__ = "usage_counters"
+    __table_args__ = (UniqueConstraint("organization_id", "period", "metric"),)
+    id: Mapped[uuid.UUID] = pk()
+    organization_id: Mapped[uuid.UUID] = org_fk()
+    period: Mapped[str] = mapped_column(String(7), nullable=False)
+    metric: Mapped[str] = mapped_column(String(60), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class BillingEvent(Base):
     __tablename__ = "billing_events"
     id: Mapped[uuid.UUID] = pk()
@@ -878,4 +906,5 @@ TENANT_TABLES = (
     "ai_agent_executions", "knowledge_bases", "knowledge_documents", "knowledge_chunks",
     "integrations", "integration_credentials", "oauth_states", "webhook_endpoints", "webhook_events",
     "approval_requests", "notification_channels", "subscriptions", "usage_records", "generated_documents",
+    "app_event_subscriptions", "usage_counters",  # 0006
 )

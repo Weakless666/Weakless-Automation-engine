@@ -29,9 +29,9 @@ backend/
     integrations/   provider catalog + adapters, OAuth, connection lifecycle
     services/       workflows, executions, webhooks, events, scheduler, approvals, usage, billing, analytics, notifications
     templates/      template library, industry packages, install/update service
-    models.py       complete schema (50 tables)
+    models.py       complete schema (52 tables)
     cli.py          operational commands
-  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor, 0005 data retention)
+  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor, 0005 data retention, 0006 event index and usage counters)
   tests/            83 tests: engine, security, accounts, two-factor, platform/e2e, operations
 frontend/           Next.js application
 deploy/             PostgreSQL role bootstrap, backup script

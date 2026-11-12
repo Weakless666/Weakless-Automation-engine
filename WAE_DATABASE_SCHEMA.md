@@ -1,6 +1,6 @@
 # WAE Database Schema
 
-Source of truth: `backend/app/models.py` (50 tables). Migrations: `backend/alembic/versions/`.
+Source of truth: `backend/app/models.py` (52 tables). Migrations: `backend/alembic/versions/`.
 
 ## Conventions
 
@@ -77,7 +77,9 @@ Source of truth: `backend/app/models.py` (50 tables). Migrations: `backend/alemb
 | `notifications`, `notification_preferences` | In-app inbox and per-user preferences |
 | `notification_channels`, `notification_deliveries` | Organization channels (encrypted targets) and delivery log |
 | `subscription_plans`, `subscriptions` | Editable plans; one subscription per organization |
-| `usage_records` | Metered usage per metric and month |
+| `usage_records` | Metered usage per metric and month (detail for analytics and charts) |
+| `usage_counters` | Running total per organization, period and metric, incremented atomically (`INSERT ... ON CONFLICT DO UPDATE`) with every record; quota checks, alerts and the usage report read these instead of summing records |
+| `app_event_subscriptions` | Application Event triggers of each workflow's published version (`exact_type` for exact patterns, NULL for wildcards), synced on publish and activation; emitting an event is an indexed lookup joined to active workflows |
 | `billing_events` | Subscription and payment-provider events (idempotent on provider event id) |
 | `system_settings` | Platform configuration (non-secret) |
 
@@ -109,6 +111,7 @@ The application sets both settings at the start of every transaction (`app/db.py
 | `0003` | `user_tokens` for password reset and invitations |
 | `0004` | Two-factor sign-in columns on `users` |
 | `0005` | `workflow_executions.details_purged_at` and indexes for the retention sweeps |
+| `0006` | `app_event_subscriptions` and `usage_counters`, back-filled from published versions and existing usage records; Row Level Security on both (PostgreSQL). `0002` now carries its own frozen table list, so later tenant tables get their policies in their own migration |
 
 ## Data retention
 

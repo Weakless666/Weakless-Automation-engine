@@ -16,7 +16,7 @@ from app.db import new_session, utcnow
 from app.deps import Ctx, optional_org_ctx, org_ctx, platform_ctx, user_ctx
 from app.models import (
     AuditLog, BillingEvent, Notification, NotificationChannel, NotificationDelivery, NotificationPreference, Subscription,
-    SubscriptionPlan, UsageRecord,
+    SubscriptionPlan, UsageCounter,
 )
 from app.services import analytics, billing
 from app.services.audit import audit
@@ -101,8 +101,8 @@ def usage(period: str | None = None, ctx: Ctx = Depends(org_ctx("billing.read"))
 @router.get("/usage/history", response_model=schemas.Items[schemas.FlexibleRow], tags=["usage"])
 def usage_history(months: int = 6, ctx: Ctx = Depends(org_ctx("billing.read"))) -> dict:
     """Monthly usage report: one row per period with every metered metric."""
-    rows = ctx.db.execute(select(UsageRecord.period, UsageRecord.metric, func.sum(UsageRecord.quantity)).where(
-        UsageRecord.organization_id == ctx.org_id).group_by(UsageRecord.period, UsageRecord.metric).order_by(UsageRecord.period.desc())).all()
+    C = UsageCounter
+    rows = ctx.db.execute(select(C.period, C.metric, C.quantity).where(C.organization_id == ctx.org_id).order_by(C.period.desc(), C.metric)).all()
     periods: dict[str, dict] = {}
     for period, metric, qty in rows:
         periods.setdefault(period, {"period": period})[metric] = float(qty)

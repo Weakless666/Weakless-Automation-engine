@@ -88,7 +88,7 @@ Jobs are rows in `execution_queues`. Workers claim them atomically, heartbeat im
 46 templates are generated from 17 reusable workflow patterns; six industry packages are collections of templates. Installing a template deep-copies its definition into a new workflow owned by the organization. Template updates replace only the draft of an installed workflow.
 
 ### Billing and usage (`services/usage.py`, `services/billing.py`)
-Metered records (`usage_records`) drive quotas, 80%/100% alerts and reports. Plans are editable. A provider abstraction separates manual billing (default; never charges) from Stripe Checkout (only when configured and the plan has a price id). No card data touches the system.
+Every metered record (`usage_records`, the detail behind charts) also increments a per-period counter (`usage_counters`); quotas, 80%/100% alerts and the monthly report read the counters, so their cost does not grow with volume. Plans are editable. A provider abstraction separates manual billing (default; never charges) from Stripe Checkout (only when configured and the plan has a price id). No card data touches the system.
 
 ## Frontend
 

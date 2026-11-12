@@ -97,6 +97,11 @@ test("on a phone every screen fits the width and the menu opens as a drawer", as
   await expect(nodes).toHaveCount(before + 1);
   await expect(page.getByLabel("Step name")).toBeVisible(); // the new step is selected and its settings slide up
   expect(await overflowing(page)).toEqual([]);
+  // The selected step stays in view above the sheet instead of hiding behind it.
+  const sheetTop = (await page.locator("#builder-panel").boundingBox())!.y;
+  await expect.poll(async () => { const b = await page.locator(".react-flow__node.selected").boundingBox(); return b ? b.y + b.height <= sheetTop && b.y >= 0 : false; }).toBe(true);
+  await nodes.first().click({ position: { x: 40, y: 12 } }); // tapping another step brings that one into view
+  await expect.poll(async () => { const b = await nodes.first().boundingBox(); return b ? b.y + b.height <= sheetTop && b.y >= 0 : false; }).toBe(true);
   await page.getByRole("button", { name: "Close panel" }).click();
   await expect(page.getByLabel("Step name")).toBeHidden();
   await page.getByRole("button", { name: /^Workflow details/ }).click();

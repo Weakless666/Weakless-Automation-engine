@@ -12,12 +12,12 @@ from __future__ import annotations
 import logging
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.core.redact import redact
-from app.models import Workflow, WorkflowExecution, WorkflowVersion, WebhookEvent
+from app.models import AppEventSubscription, Workflow, WorkflowExecution, WebhookEvent
 
 log = logging.getLogger("wae.events")
 LIFECYCLE_EVENTS = ("workflow.completed", "workflow.failed")
@@ -38,27 +38,24 @@ def emit_app_event(db: Session, organization_id: uuid.UUID, event_type: str, pay
     db.add(event)
     db.flush()
     started = 0
-    workflows = db.scalars(select(Workflow).where(
-        Workflow.organization_id == organization_id, Workflow.is_active.is_(True),
-        Workflow.deleted_at.is_(None), Workflow.current_version_id.is_not(None)))
-    for wf in workflows:
-        version = db.get(WorkflowVersion, wf.current_version_id)
-        if not version:
+    # Indexed lookup: exact subscriptions for this type plus the organization's (few) wildcard ones.
+    S = AppEventSubscription
+    rows = db.execute(select(S.node_key, S.pattern, Workflow).join(Workflow, Workflow.id == S.workflow_id).where(
+        S.organization_id == organization_id, or_(S.exact_type == event_type, S.exact_type.is_(None)),
+        Workflow.is_active.is_(True), Workflow.deleted_at.is_(None), Workflow.current_version_id.is_not(None),
+    ).order_by(Workflow.created_at, S.node_key)).all()
+    for node_key, pattern, wf in rows:
+        if not _matches(pattern, event_type):
             continue
-        for node in version.definition.get("nodes", []):
-            if node.get("type") != "trigger.app_event":
-                continue
-            if not _matches((node.get("config") or {}).get("event_type", ""), event_type):
-                continue
-            if str(wf.id) == str(payload.get("workflow_id")) and event_type in LIFECYCLE_EVENTS:
-                continue  # a workflow never reacts to its own lifecycle events
-            try:
-                ex = start_execution(db, wf, trigger_type="app_event", trigger_node=node["id"],
-                                     payload={"event_type": event_type, "data": payload, "event_id": str(event.id)})
-                event.execution_id = event.execution_id or ex.id
-                started += 1
-            except AppError as exc:
-                log.warning("app event %s could not start workflow %s: %s", event_type, wf.id, exc.message)
+        if str(wf.id) == str(payload.get("workflow_id")) and event_type in LIFECYCLE_EVENTS:
+            continue  # a workflow never reacts to its own lifecycle events
+        try:
+            ex = start_execution(db, wf, trigger_type="app_event", trigger_node=node_key,
+                                 payload={"event_type": event_type, "data": payload, "event_id": str(event.id)})
+            event.execution_id = event.execution_id or ex.id
+            started += 1
+        except AppError as exc:
+            log.warning("app event %s could not start workflow %s: %s", event_type, wf.id, exc.message)
     event.status = "processed" if started else "ignored"
     db.flush()
     return event

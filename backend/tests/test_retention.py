@@ -13,7 +13,6 @@ from app.models import (
     WorkflowExecutionStep,
 )
 from app.services.retention import DEFAULT_POLICY, run_retention
-from app.services.usage import usage_totals
 from tests.conftest import login, make_user, make_workflow, run, steps, wf_def
 
 DEF = wf_def([{"id": "t", "type": "trigger.manual"}, {"id": "x", "type": "logic.transform", "config": {"fields": {"who": "{{ trigger.name }}"}}}],
@@ -75,10 +74,14 @@ def test_usage_detail_is_compacted_without_changing_totals(db, org):
     for _ in range(2):
         db.add(UsageRecord(organization_id=org.id, metric="executions", quantity=Decimal(1), period=recent.strftime("%Y-%m"), occurred_at=recent))
     db.commit()
-    before_old, before_new = usage_totals(db, org.id, period), usage_totals(db, org.id, recent.strftime("%Y-%m"))
+    def sums():  # what billing history, quotas and charts are derived from
+        return sorted((p, m, w, float(q)) for p, m, w, q in db.execute(select(UsageRecord.period, UsageRecord.metric, func.date(UsageRecord.occurred_at),
+                                                                              func.sum(UsageRecord.quantity)).group_by(UsageRecord.period, UsageRecord.metric,
+                                                                                                                       func.date(UsageRecord.occurred_at))))
+    before = sums()
 
     assert run_retention(db)["usage_records_merged"] == 6  # 6 -> 2 rows (one per workflow), 3 -> 1
-    assert usage_totals(db, org.id, period) == before_old and usage_totals(db, org.id, recent.strftime("%Y-%m")) == before_new
+    assert sums() == before  # per period, metric and day nothing changes
     old_rows = db.scalars(select(UsageRecord).where(UsageRecord.period == period)).all()
     assert len(old_rows) == 3 and all(r.occurred_at.date() == day.date() for r in old_rows)
     assert sorted(r.meta["compacted_records"] for r in old_rows) == [3, 3, 3]

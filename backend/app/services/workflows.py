@@ -12,7 +12,7 @@ from app.core.errors import Conflict, ValidationFailed
 from app.core.security import random_token
 from app.engine.graph import NODE_ID, has_errors, validate_definition
 from app.models import (
-    WebhookEndpoint, Workflow, WorkflowConnection, WorkflowNode, WorkflowSchedule, WorkflowVersion, Workspace,
+    AppEventSubscription, WebhookEndpoint, Workflow, WorkflowConnection, WorkflowNode, WorkflowSchedule, WorkflowVersion, Workspace,
 )
 from app.services.scheduler import next_run, valid_cron
 
@@ -192,7 +192,26 @@ def sync_triggers(db: Session, wf: Workflow) -> None:
             sch.next_run_at = next_run(cron, tz)
         if not wf.is_active:
             sch.next_run_at = None
+    sync_event_subscriptions(db, wf, nodes)
     db.flush()
+
+
+def sync_event_subscriptions(db: Session, wf: Workflow, nodes: list[dict]) -> None:
+    """Mirror the published version's Application Event triggers into the subscription index."""
+    wanted = {}
+    for n in nodes:
+        if n.get("type") == "trigger.app_event":
+            pattern = str((n.get("config") or {}).get("event_type") or "").strip()[:120]
+            if pattern:
+                wanted[n["id"]] = pattern
+    existing = {s.node_key: s for s in db.scalars(select(AppEventSubscription).where(AppEventSubscription.workflow_id == wf.id))}
+    for key, sub in existing.items():
+        if key not in wanted:
+            db.delete(sub)
+    for key, pattern in wanted.items():
+        sub = existing.get(key) or AppEventSubscription(organization_id=wf.organization_id, workflow_id=wf.id, node_key=key, pattern=pattern)
+        sub.pattern, sub.exact_type = pattern, None if pattern.endswith("*") else pattern
+        db.add(sub)
 
 
 def create_workflow(

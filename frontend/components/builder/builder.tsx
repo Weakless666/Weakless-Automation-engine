@@ -340,6 +340,24 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
+  // Small screens: the settings sheet covers the lower part of the canvas, so centre the selected
+  // step in the part that is still visible (keeping the zoom). Large screens have a side panel instead.
+  useEffect(() => {
+    if (!selected || window.matchMedia("(min-width: 1024px)").matches) return;
+    const frame = requestAnimationFrame(() => {
+      const n = rf.getNode(selected);
+      const canvas = document.querySelector<HTMLElement>(".react-flow")?.getBoundingClientRect();
+      const sheet = document.getElementById("builder-panel")?.getBoundingClientRect();
+      if (!n || !canvas || !sheet) return;
+      const visibleBottom = Math.min(canvas.bottom, sheet.top);
+      const offset = canvas.height / 2 - (visibleBottom - canvas.top) / 2; // screen px between canvas centre and visible centre
+      const { zoom } = rf.getViewport();
+      const w = n.measured?.width ?? 200, h = n.measured?.height ?? 60;
+      rf.setCenter(n.position.x + w / 2, n.position.y + h / 2 + offset / zoom, { zoom, duration: 200 });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selected, rf]);
+
   const touch = () => { setDirty(true); setMessage(null); };
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target || c.source === c.target) return;
@@ -465,8 +483,8 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
             </ReactFlow>
           </div>
           {/* A side column on large screens; on smaller ones a bottom sheet for the selected step or the workflow. */}
-          <aside className={clsx("w-[360px] shrink-0 overflow-y-auto border-l bg-surface",
-            sel || sheet === "details" ? "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:max-h-[70dvh] max-lg:w-full max-lg:rounded-t-xl max-lg:border-l-0 max-lg:border-t max-lg:shadow-2xl" : "max-lg:hidden")}>
+          <aside id="builder-panel" className={clsx("w-[360px] shrink-0 overflow-y-auto border-l bg-surface",
+            sel || sheet === "details" ? "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:max-h-[55dvh] max-lg:w-full max-lg:rounded-t-xl max-lg:border-l-0 max-lg:border-t max-lg:shadow-2xl" : "max-lg:hidden")}>
             <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-surface px-4 py-2 lg:hidden">
               <span className="text-sm font-medium">{sel ? "Step settings" : "Workflow details"}</span>
               <button type="button" aria-label="Close panel" className="rounded-md p-1.5 text-muted hover:bg-raised hover:text-fg"

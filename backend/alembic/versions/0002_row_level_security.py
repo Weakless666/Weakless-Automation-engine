@@ -21,7 +21,16 @@ from typing import Sequence, Union
 
 from alembic import op
 
-from app.models import TENANT_TABLES
+# Frozen at the time of this revision: tables added later get their policies in their own migration
+# (importing the live list from app.models would reference tables that do not exist yet).
+TENANT_TABLES = (
+    "clients", "workspaces", "workflows", "workflow_versions", "workflow_nodes", "workflow_connections",
+    "workflow_executions", "workflow_execution_steps", "workflow_schedules", "execution_queues",
+    "installed_templates", "ai_agents", "ai_agent_tools", "ai_conversations", "ai_messages",
+    "ai_agent_executions", "knowledge_bases", "knowledge_documents", "knowledge_chunks",
+    "integrations", "integration_credentials", "oauth_states", "webhook_endpoints", "webhook_events",
+    "approval_requests", "notification_channels", "subscriptions", "usage_records", "generated_documents",
+)
 
 revision: str = "0002"
 down_revision: Union[str, None] = "0001"

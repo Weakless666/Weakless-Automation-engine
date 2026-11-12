@@ -10,7 +10,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.errors import QuotaExceeded
 from app.db import utcnow
-from app.models import Integration, Subscription, SubscriptionPlan, UsageRecord, Workflow
+from app.models import Integration, Subscription, SubscriptionPlan, UsageCounter, UsageRecord, Workflow
 
 METRICS = ("executions", "ai_requests", "ai_input_tokens", "ai_output_tokens", "ai_cost_usd")
 ALERT_THRESHOLDS = (80, 100)
@@ -41,16 +41,28 @@ def plan_limit(db: Session, organization_id: uuid.UUID, key: str):
 
 
 def usage_totals(db: Session, organization_id: uuid.UUID, period: str | None = None) -> dict[str, float]:
+    """Totals for a billing period, read from the running counters (a handful of rows)."""
     period = period or current_period()
-    rows = db.execute(
-        select(UsageRecord.metric, func.coalesce(func.sum(UsageRecord.quantity), 0))
-        .where(UsageRecord.organization_id == organization_id, UsageRecord.period == period)
-        .group_by(UsageRecord.metric)
-    ).all()
+    rows = db.execute(select(UsageCounter.metric, UsageCounter.quantity).where(
+        UsageCounter.organization_id == organization_id, UsageCounter.period == period)).all()
     totals = {m: 0.0 for m in METRICS}
     for metric, qty in rows:
         totals[metric] = float(qty)
     return totals
+
+
+def _add_to_counter(db: Session, organization_id: uuid.UUID, period: str, metric: str, quantity: Decimal) -> None:
+    """Atomic increment (INSERT ... ON CONFLICT DO UPDATE), safe with concurrent workers."""
+    if db.get_bind().dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    now = utcnow()
+    stmt = insert(UsageCounter).values(id=uuid.uuid4(), organization_id=organization_id, period=period, metric=metric,
+                                       quantity=quantity, updated_at=now)
+    db.execute(stmt.on_conflict_do_update(
+        index_elements=[UsageCounter.organization_id, UsageCounter.period, UsageCounter.metric],
+        set_={"quantity": UsageCounter.quantity + stmt.excluded.quantity, "updated_at": now}))
 
 
 def quota_status(db: Session, organization_id: uuid.UUID) -> dict[str, dict]:
@@ -103,11 +115,13 @@ def record_usage(
 ) -> None:
     if not quantity:
         return
+    period, amount = current_period(), Decimal(str(quantity))
     db.add(UsageRecord(
-        organization_id=organization_id, metric=metric, quantity=Decimal(str(quantity)), period=current_period(),
+        organization_id=organization_id, metric=metric, quantity=amount, period=period,
         workflow_id=workflow_id, execution_id=execution_id, meta=meta or {},
     ))
     db.flush()
+    _add_to_counter(db, organization_id, period, metric, amount)  # the record is the detail; the counter is the total
     _check_alerts(db, organization_id)
 
 
