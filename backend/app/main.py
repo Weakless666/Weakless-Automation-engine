@@ -128,18 +128,19 @@ def create_app() -> FastAPI:
         code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
         return _error(exc.status_code, code, str(exc.detail), request)
 
-    from app.api import agents, auth, catalog, events, insights, integrations, orgs, workflows
+    from app.api import agents, auth, catalog, events, insights, integrations, orgs, schemas, workflows
 
     for r in (auth.router, orgs.router, workflows.router, agents.router, integrations.router, events.router, events.public,
               catalog.router, insights.router, insights.public):
-        app.include_router(r, prefix="/api/v1")
+        # Every error uses the same envelope; documenting it here covers all operations.
+        app.include_router(r, prefix="/api/v1", responses=schemas.ERROR_RESPONSES)
 
-    @app.get("/api/v1/health", tags=["system"])
+    @app.get("/api/v1/health", tags=["system"], response_model=schemas.Health)
     def health() -> dict:
         """Liveness probe."""
         return {"status": "ok", "version": __version__}
 
-    @app.get("/api/v1/health/ready", tags=["system"])
+    @app.get("/api/v1/health/ready", tags=["system"], response_model=schemas.Health, responses={503: {"model": schemas.Health, "description": "Database unreachable"}})
     def ready():
         """Readiness probe: verifies database connectivity."""
         try:

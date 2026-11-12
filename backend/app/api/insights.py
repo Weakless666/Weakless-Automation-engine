@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import Field
 from sqlalchemy import func, select
 
+from app.api import schemas
+from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, owned, paginate, parse_dt, parse_uuid
 from app.core import vault
 from app.core.errors import AppError, NodeError, NotFound, ValidationFailed
@@ -21,8 +23,8 @@ from app.services.audit import audit
 from app.services.notifications import EVENT_TYPES, deliver_to_channel
 from app.services.usage import current_period, quota_status, usage_totals
 
-router = APIRouter()
-public = APIRouter(tags=["billing"])
+router = APIRouter(route_class=ApiRoute)
+public = APIRouter(route_class=ApiRoute, tags=["billing"])
 
 
 # ----------------------------------------------------------------------------- analytics
@@ -35,36 +37,36 @@ def _filters(ctx: Ctx, start: str | None, end: str | None, workflow_id: str | No
     return analytics.Filters(ctx.org.id if ctx.org else None, s, e, parse_uuid(workflow_id, "Workflow") if workflow_id else None, status)
 
 
-@router.get("/analytics/overview", tags=["analytics"])
+@router.get("/analytics/overview", response_model=schemas.OverviewOut, tags=["analytics"])
 def overview(start: str | None = None, end: str | None = None, workflow_id: str | None = None, status: str | None = None,
              ctx: Ctx = Depends(optional_org_ctx("analytics.read"))) -> dict:
     return analytics.overview(ctx.db, _filters(ctx, start, end, workflow_id, status), platform=ctx.is_staff)
 
 
-@router.get("/analytics/timeseries", tags=["analytics"])
+@router.get("/analytics/timeseries", response_model=schemas.Items[schemas.DayPoint], tags=["analytics"])
 def timeseries(start: str | None = None, end: str | None = None, workflow_id: str | None = None, status: str | None = None,
                ctx: Ctx = Depends(optional_org_ctx("analytics.read"))) -> dict:
     return {"items": analytics.timeseries(ctx.db, _filters(ctx, start, end, workflow_id, status))}
 
 
-@router.get("/analytics/workflows", tags=["analytics"])
+@router.get("/analytics/workflows", response_model=schemas.Items[schemas.WorkflowStats], tags=["analytics"])
 def workflows_breakdown(start: str | None = None, end: str | None = None, ctx: Ctx = Depends(optional_org_ctx("analytics.read"))) -> dict:
     return {"items": analytics.by_workflow(ctx.db, _filters(ctx, start, end))}
 
 
-@router.get("/analytics/ai", tags=["analytics"])
+@router.get("/analytics/ai", response_model=schemas.AiBreakdown, tags=["analytics"])
 def ai_breakdown(start: str | None = None, end: str | None = None, ctx: Ctx = Depends(optional_org_ctx("analytics.read"))) -> dict:
     f = _filters(ctx, start, end)
     return {"summary": analytics.ai_summary(ctx.db, f), "by_model": analytics.ai_by_model(ctx.db, f)}
 
 
-@router.get("/analytics/integrations", tags=["analytics"])
+@router.get("/analytics/integrations", response_model=schemas.IntegrationBreakdown, tags=["analytics"])
 def integrations_breakdown(ctx: Ctx = Depends(optional_org_ctx("analytics.read"))) -> dict:
     f = _filters(ctx, None, None)
     return {"summary": analytics.integration_health(ctx.db, f), "items": analytics.integrations_detail(ctx.db, f)}
 
 
-@router.get("/analytics/system", tags=["analytics"])
+@router.get("/analytics/system", response_model=schemas.SystemHealth, tags=["analytics"])
 def system_health(ctx: Ctx = Depends(platform_ctx("platform.analytics.read"))) -> dict:
     from sqlalchemy import text
 
@@ -90,13 +92,13 @@ def plan_view(p: SubscriptionPlan) -> dict:
             "provider_price_id": p.provider_price_id, "sort_order": p.sort_order}
 
 
-@router.get("/usage", tags=["usage"])
+@router.get("/usage", response_model=schemas.UsageOut, tags=["usage"])
 def usage(period: str | None = None, ctx: Ctx = Depends(org_ctx("billing.read"))) -> dict:
     period = period or current_period()
     return {"period": period, "totals": usage_totals(ctx.db, ctx.org_id, period), "quotas": quota_status(ctx.db, ctx.org_id)}
 
 
-@router.get("/usage/history", tags=["usage"])
+@router.get("/usage/history", response_model=schemas.Items[schemas.FlexibleRow], tags=["usage"])
 def usage_history(months: int = 6, ctx: Ctx = Depends(org_ctx("billing.read"))) -> dict:
     """Monthly usage report: one row per period with every metered metric."""
     rows = ctx.db.execute(select(UsageRecord.period, UsageRecord.metric, func.sum(UsageRecord.quantity)).where(
@@ -107,7 +109,7 @@ def usage_history(months: int = 6, ctx: Ctx = Depends(org_ctx("billing.read"))) 
     return {"items": list(periods.values())[: max(1, min(months, 36))]}
 
 
-@router.get("/billing/plans", tags=["billing"])
+@router.get("/billing/plans", response_model=schemas.Items[schemas.PlanOut], tags=["billing"])
 def list_plans(ctx: Ctx = Depends(user_ctx)) -> dict:
     q = select(SubscriptionPlan).order_by(SubscriptionPlan.sort_order)
     if not ctx.is_staff:
@@ -141,7 +143,7 @@ class PlanBody(Body):
     sort_order: int = 0
 
 
-@router.post("/billing/plans", status_code=201, tags=["billing"])
+@router.post("/billing/plans", response_model=schemas.PlanOut, status_code=201, tags=["billing"])
 def create_plan(body: PlanBody, ctx: Ctx = Depends(platform_ctx("platform.plans.manage"))) -> dict:
     if ctx.db.scalar(select(SubscriptionPlan.id).where(SubscriptionPlan.key == body.key)):
         raise AppError("A plan with this key already exists", code="conflict", status_code=409)
@@ -153,7 +155,7 @@ def create_plan(body: PlanBody, ctx: Ctx = Depends(platform_ctx("platform.plans.
     return plan_view(p)
 
 
-@router.put("/billing/plans/{plan_id}", tags=["billing"])
+@router.put("/billing/plans/{plan_id}", response_model=schemas.PlanOut, tags=["billing"])
 def update_plan(plan_id: str, body: PlanBody, ctx: Ctx = Depends(platform_ctx("platform.plans.manage"))) -> dict:
     p = ctx.db.get(SubscriptionPlan, parse_uuid(plan_id, "Plan"))
     if not p:
@@ -166,7 +168,7 @@ def update_plan(plan_id: str, body: PlanBody, ctx: Ctx = Depends(platform_ctx("p
     return plan_view(p)
 
 
-@router.get("/billing/subscription", tags=["billing"])
+@router.get("/billing/subscription", response_model=schemas.SubscriptionOut, tags=["billing"])
 def subscription(ctx: Ctx = Depends(org_ctx("billing.read"))) -> dict:
     sub = ctx.db.scalar(select(Subscription).where(Subscription.organization_id == ctx.org_id))
     plan = ctx.db.get(SubscriptionPlan, sub.plan_id) if sub else None
@@ -187,7 +189,7 @@ class ChangePlan(Body):
     plan: str = Field(..., description="Plan id or key")
 
 
-@router.post("/billing/change-plan", tags=["billing"])
+@router.post("/billing/change-plan", response_model=schemas.PlanChangeOut, tags=["billing"])
 def change_plan(body: ChangePlan, ctx: Ctx = Depends(org_ctx("billing.manage"))) -> dict:
     plan = billing.get_plan(ctx.db, body.plan)
     if not ctx.is_staff and not plan.is_public:
@@ -198,7 +200,7 @@ def change_plan(body: ChangePlan, ctx: Ctx = Depends(org_ctx("billing.manage")))
     return result
 
 
-@router.post("/billing/cancel", tags=["billing"])
+@router.post("/billing/cancel", response_model=schemas.CancelOut, tags=["billing"])
 def cancel_subscription(ctx: Ctx = Depends(org_ctx("billing.manage"))) -> dict:
     sub = billing.cancel_subscription(ctx.db, ctx.org_id, ctx.user.email)
     audit(ctx.db, "billing.cancel_scheduled", ctx=ctx, resource_type="subscription", resource_id=ctx.org_id)
@@ -206,14 +208,14 @@ def cancel_subscription(ctx: Ctx = Depends(org_ctx("billing.manage"))) -> dict:
     return {"cancel_at_period_end": sub.cancel_at_period_end, "effective": iso(sub.current_period_end)}
 
 
-@router.get("/billing/events", tags=["billing"])
+@router.get("/billing/events", response_model=schemas.Page[schemas.BillingEventOut], tags=["billing"])
 def billing_events(paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("billing.read"))) -> dict:
     q = select(BillingEvent).where(BillingEvent.organization_id == ctx.org_id).order_by(BillingEvent.created_at.desc())
     return paginate(ctx.db, q, paging, lambda e: {"id": str(e.id), "type": e.type, "provider": e.provider, "amount_cents": e.amount_cents,
                                                   "currency": e.currency, "data": e.data, "created_at": iso(e.created_at)})
 
 
-@public.post("/billing/webhooks/stripe", include_in_schema=False)
+@public.post("/billing/webhooks/stripe", response_model=schemas.StatusOut, include_in_schema=False)
 async def stripe_webhook(request: Request) -> dict:
     body = await request.body()
     with new_session(bypass_rls=True) as db:
@@ -230,7 +232,7 @@ def notification_view(n: Notification) -> dict:
             "severity": n.severity, "title": n.title, "body": n.body, "data": n.data, "read": n.read_at is not None, "created_at": iso(n.created_at)}
 
 
-@router.get("/notifications", tags=["notifications"])
+@router.get("/notifications", response_model=schemas.NotificationPage, tags=["notifications"])
 def list_notifications(unread: bool = False, paging: Paging = Depends(), ctx: Ctx = Depends(user_ctx)) -> dict:
     q = select(Notification).where(Notification.user_id == ctx.user.id)
     if unread:
@@ -240,7 +242,7 @@ def list_notifications(unread: bool = False, paging: Paging = Depends(), ctx: Ct
     return page
 
 
-@router.post("/notifications/{notification_id}/read", tags=["notifications"])
+@router.post("/notifications/{notification_id}/read", response_model=schemas.NotificationOut, tags=["notifications"])
 def mark_read(notification_id: str, ctx: Ctx = Depends(user_ctx)) -> dict:
     n = ctx.db.get(Notification, parse_uuid(notification_id, "Notification"))
     if not n or n.user_id != ctx.user.id:
@@ -250,7 +252,7 @@ def mark_read(notification_id: str, ctx: Ctx = Depends(user_ctx)) -> dict:
     return notification_view(n)
 
 
-@router.post("/notifications/read-all", tags=["notifications"])
+@router.post("/notifications/read-all", response_model=schemas.UpdatedCount, tags=["notifications"])
 def mark_all_read(ctx: Ctx = Depends(user_ctx)) -> dict:
     rows = ctx.db.scalars(select(Notification).where(Notification.user_id == ctx.user.id, Notification.read_at.is_(None))).all()
     for n in rows:
@@ -259,7 +261,7 @@ def mark_all_read(ctx: Ctx = Depends(user_ctx)) -> dict:
     return {"updated": len(rows)}
 
 
-@router.get("/notifications/preferences", tags=["notifications"])
+@router.get("/notifications/preferences", response_model=schemas.Items[schemas.PreferenceOut], tags=["notifications"])
 def get_preferences(ctx: Ctx = Depends(user_ctx)) -> dict:
     prefs = {p.event_type: p for p in ctx.db.scalars(select(NotificationPreference).where(NotificationPreference.user_id == ctx.user.id))}
     return {"items": [{"event_type": k, "label": v["label"], "in_app": prefs[k].in_app if k in prefs else v["in_app"],
@@ -276,7 +278,7 @@ class Preferences(Body):
     items: list[Preference]
 
 
-@router.put("/notifications/preferences", tags=["notifications"])
+@router.put("/notifications/preferences", response_model=schemas.Items[schemas.PreferenceOut], tags=["notifications"])
 def put_preferences(body: Preferences, ctx: Ctx = Depends(user_ctx)) -> dict:
     existing = {p.event_type: p for p in ctx.db.scalars(select(NotificationPreference).where(NotificationPreference.user_id == ctx.user.id))}
     for item in body.items:
@@ -333,13 +335,13 @@ def _apply_channel(c: NotificationChannel, body: ChannelBody, creating: bool) ->
         c.secret_envelope = vault.encrypt_json({**current, **secret}, aad)
 
 
-@router.get("/notification-channels", tags=["notifications"])
+@router.get("/notification-channels", response_model=schemas.ChannelsOut, tags=["notifications"])
 def list_channels(ctx: Ctx = Depends(org_ctx("notifications.manage"))) -> dict:
     rows = ctx.db.scalars(select(NotificationChannel).where(NotificationChannel.organization_id == ctx.org_id).order_by(NotificationChannel.name)).all()
     return {"items": [channel_view(c) for c in rows], "event_types": [{"key": k, "label": v["label"]} for k, v in EVENT_TYPES.items()]}
 
 
-@router.post("/notification-channels", status_code=201, tags=["notifications"])
+@router.post("/notification-channels", response_model=schemas.ChannelOut, status_code=201, tags=["notifications"])
 def create_channel(body: ChannelBody, ctx: Ctx = Depends(org_ctx("notifications.manage"))) -> dict:
     import uuid as _uuid
 
@@ -351,7 +353,7 @@ def create_channel(body: ChannelBody, ctx: Ctx = Depends(org_ctx("notifications.
     return channel_view(c)
 
 
-@router.put("/notification-channels/{channel_id}", tags=["notifications"])
+@router.put("/notification-channels/{channel_id}", response_model=schemas.ChannelOut, tags=["notifications"])
 def update_channel(channel_id: str, body: ChannelBody, ctx: Ctx = Depends(org_ctx("notifications.manage"))) -> dict:
     c = owned(ctx.db, NotificationChannel, channel_id, ctx.org_id, "Channel")
     if body.kind != c.kind:
@@ -362,7 +364,7 @@ def update_channel(channel_id: str, body: ChannelBody, ctx: Ctx = Depends(org_ct
     return channel_view(c)
 
 
-@router.delete("/notification-channels/{channel_id}", tags=["notifications"])
+@router.delete("/notification-channels/{channel_id}", response_model=schemas.Ok, tags=["notifications"])
 def delete_channel(channel_id: str, ctx: Ctx = Depends(org_ctx("notifications.manage"))) -> dict:
     c = owned(ctx.db, NotificationChannel, channel_id, ctx.org_id, "Channel")
     ctx.db.delete(c)
@@ -371,7 +373,7 @@ def delete_channel(channel_id: str, ctx: Ctx = Depends(org_ctx("notifications.ma
     return {"ok": True}
 
 
-@router.post("/notification-channels/{channel_id}/test", tags=["notifications"])
+@router.post("/notification-channels/{channel_id}/test", response_model=schemas.DeliveryResult, tags=["notifications"])
 def test_channel(channel_id: str, ctx: Ctx = Depends(org_ctx("notifications.manage"))) -> dict:
     c = owned(ctx.db, NotificationChannel, channel_id, ctx.org_id, "Channel")
     try:
@@ -384,7 +386,7 @@ def test_channel(channel_id: str, ctx: Ctx = Depends(org_ctx("notifications.mana
     return {"status": status, "error": error}
 
 
-@router.get("/notification-deliveries", tags=["notifications"])
+@router.get("/notification-deliveries", response_model=schemas.Page[schemas.DeliveryOut], tags=["notifications"])
 def deliveries(paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("notifications.manage"))) -> dict:
     q = select(NotificationDelivery).where(NotificationDelivery.organization_id == ctx.org_id).order_by(NotificationDelivery.created_at.desc())
     return paginate(ctx.db, q, paging, lambda d: {"id": str(d.id), "channel_kind": d.channel_kind, "event_type": d.event_type,
@@ -394,7 +396,7 @@ def deliveries(paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("notificat
 # ----------------------------------------------------------------------------- audit
 
 
-@router.get("/audit-logs", tags=["audit"])
+@router.get("/audit-logs", response_model=schemas.Page[schemas.AuditEntryOut], tags=["audit"])
 def audit_logs(action: str | None = None, actor: str | None = None, start: str | None = None, end: str | None = None,
                paging: Paging = Depends(), ctx: Ctx = Depends(optional_org_ctx("audit.read"))) -> dict:
     q = select(AuditLog)

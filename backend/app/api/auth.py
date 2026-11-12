@@ -9,6 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import rbac
+from app.api import schemas
+from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, paginate, parse_uuid
 from app.config import get_settings
 from app.core.errors import AppError, Conflict, Forbidden, NotFound, RateLimited, Unauthorized, ValidationFailed
@@ -25,7 +27,7 @@ from app.services import accounts, mfa
 from app.services.audit import audit
 from app.services.notifications import notify
 
-router = APIRouter(tags=["auth"])
+router = APIRouter(route_class=ApiRoute, tags=["auth"])
 MAX_FAILED_LOGINS = 8
 LOCK_MINUTES = 15
 _DUMMY_HASH = hash_password("timing-equalizer-not-a-real-password")
@@ -42,7 +44,7 @@ def user_view(u: User) -> dict:
             "last_login_at": iso(u.last_login_at), "created_at": iso(u.created_at)}
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", response_model=schemas.LoginResult)
 def login(body: LoginBody, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
     s = get_settings()
     ip = client_ip(request)
@@ -125,7 +127,7 @@ class ResetRequestBody(Body):
     email: EmailStr
 
 
-@router.post("/auth/password-reset/request", status_code=202)
+@router.post("/auth/password-reset/request", response_model=schemas.ResetRequested, status_code=202)
 def password_reset_request(body: ResetRequestBody, request: Request, db: Session = Depends(get_db)) -> dict:
     """Always answers the same way, whether or not the account exists."""
     email = body.email.lower().strip()
@@ -145,7 +147,7 @@ class ResetConfirmBody(Body):
     new_password: str = Field(..., max_length=200)
 
 
-@router.post("/auth/password-reset/confirm")
+@router.post("/auth/password-reset/confirm", response_model=schemas.Ok)
 def password_reset_confirm(body: ResetConfirmBody, request: Request, db: Session = Depends(get_db)) -> dict:
     _public_limit(request, "reset-confirm")
     user = accounts.confirm_password_reset(db, body.token, body.new_password)
@@ -161,7 +163,7 @@ class TokenBody(Body):
     token: str = Field(..., min_length=10, max_length=200)
 
 
-@router.post("/auth/invitations/inspect")
+@router.post("/auth/invitations/inspect", response_model=schemas.InvitationInfo)
 def invitation_inspect(body: TokenBody, request: Request, db: Session = Depends(get_db)) -> dict:
     _public_limit(request, "invite")
     return accounts.invitation_info(db, body.token)
@@ -173,7 +175,7 @@ class AcceptBody(Body):
     full_name: str | None = Field(None, max_length=200)
 
 
-@router.post("/auth/invitations/accept")
+@router.post("/auth/invitations/accept", response_model=schemas.LoginResult)
 def invitation_accept(body: AcceptBody, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
     """Accept an invitation and start a session."""
     _public_limit(request, "invite")
@@ -209,7 +211,7 @@ def _mfa_failure(db: Session, user: User, request: Request) -> None:
     raise Unauthorized("That code is not valid. Use the newest code from your authenticator app.", code="invalid_mfa_code")
 
 
-@router.post("/auth/mfa/verify")
+@router.post("/auth/mfa/verify", response_model=schemas.LoginResult)
 def mfa_verify(body: MfaCodeBody, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
     """Second step of sign-in: an authenticator code or a recovery code."""
     _public_limit(request, "mfa")
@@ -227,7 +229,7 @@ def mfa_verify(body: MfaCodeBody, request: Request, response: Response, db: Sess
     return _start_session(db, user, client_ip(request), request.headers.get("user-agent", "")[:400], response, reason=f"mfa_{method}")
 
 
-@router.post("/auth/mfa/setup")
+@router.post("/auth/mfa/setup", response_model=schemas.MfaStart)
 def mfa_setup_during_login(body: MfaTokenBody, request: Request, db: Session = Depends(get_db)) -> dict:
     """Required set-up at sign-in (staff without two-factor sign-in yet)."""
     _public_limit(request, "mfa")
@@ -239,7 +241,7 @@ def mfa_setup_during_login(body: MfaTokenBody, request: Request, db: Session = D
     return started
 
 
-@router.post("/auth/mfa/setup/confirm")
+@router.post("/auth/mfa/setup/confirm", response_model=schemas.SessionWithRecoveryCodes)
 def mfa_setup_confirm_during_login(body: MfaCodeBody, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
     _public_limit(request, "mfa")
     user = mfa.user_from_challenge(db, body.mfa_token, "setup")
@@ -249,12 +251,12 @@ def mfa_setup_confirm_during_login(body: MfaCodeBody, request: Request, response
     return {**result, "recovery_codes": codes}
 
 
-@router.get("/auth/mfa")
+@router.get("/auth/mfa", response_model=schemas.MfaStatus)
 def mfa_status(ctx: Ctx = Depends(user_ctx)) -> dict:
     return mfa.status(ctx.db, ctx.user)
 
 
-@router.post("/auth/mfa/enroll")
+@router.post("/auth/mfa/enroll", response_model=schemas.MfaStart)
 def mfa_enroll(ctx: Ctx = Depends(user_ctx)) -> dict:
     if mfa.enabled(ctx.user):
         raise Conflict("Two-factor sign-in is already on")
@@ -267,7 +269,7 @@ class CodeBody(Body):
     code: str = Field(..., min_length=1, max_length=40)
 
 
-@router.post("/auth/mfa/enroll/confirm")
+@router.post("/auth/mfa/enroll/confirm", response_model=schemas.MfaEnrolled)
 def mfa_enroll_confirm(body: CodeBody, ctx: Ctx = Depends(user_ctx)) -> dict:
     codes = mfa.confirm_enrollment(ctx.db, ctx.user, body.code)
     audit(ctx.db, "auth.mfa_enabled", ctx=ctx, resource_type="user", resource_id=ctx.user.id)
@@ -281,7 +283,7 @@ def _verify_current_code(ctx: Ctx, code: str) -> None:
         raise Forbidden("That code is not valid", code="invalid_mfa_code")
 
 
-@router.post("/auth/mfa/recovery-codes")
+@router.post("/auth/mfa/recovery-codes", response_model=schemas.RecoveryCodesOut)
 def mfa_new_recovery_codes(body: CodeBody, ctx: Ctx = Depends(user_ctx)) -> dict:
     """Replace all recovery codes (the old ones stop working). Requires a current code."""
     if not mfa.enabled(ctx.user):
@@ -298,7 +300,7 @@ class DisableMfaBody(Body):
     code: str = Field(..., min_length=1, max_length=40)
 
 
-@router.post("/auth/mfa/disable")
+@router.post("/auth/mfa/disable", response_model=schemas.MfaStatus)
 def mfa_disable(body: DisableMfaBody, ctx: Ctx = Depends(user_ctx)) -> dict:
     if not mfa.enabled(ctx.user):
         raise Conflict("Two-factor sign-in is not on")
@@ -313,7 +315,7 @@ def mfa_disable(body: DisableMfaBody, ctx: Ctx = Depends(user_ctx)) -> dict:
     return mfa.status(ctx.db, ctx.user)
 
 
-@router.post("/auth/logout")
+@router.post("/auth/logout", response_model=schemas.Ok)
 def logout(response: Response, ctx: Ctx = Depends(user_ctx)) -> dict:
     ctx.session.revoked_at = utcnow()
     ctx.db.commit()
@@ -321,7 +323,7 @@ def logout(response: Response, ctx: Ctx = Depends(user_ctx)) -> dict:
     return {"ok": True}
 
 
-@router.get("/auth/me")
+@router.get("/auth/me", response_model=schemas.MeOut)
 def me(ctx: Ctx = Depends(user_ctx)) -> dict:
     db = ctx.db
     if ctx.is_staff:
@@ -343,7 +345,7 @@ class PasswordBody(Body):
     new_password: str = Field(..., max_length=200)
 
 
-@router.post("/auth/change-password")
+@router.post("/auth/change-password", response_model=schemas.Ok)
 def change_password(body: PasswordBody, ctx: Ctx = Depends(user_ctx)) -> dict:
     if not verify_password(body.current_password, ctx.user.password_hash):
         raise Forbidden("Current password is incorrect")
@@ -363,14 +365,14 @@ class ProfileBody(Body):
     full_name: str = Field(..., min_length=1, max_length=200)
 
 
-@router.patch("/auth/me")
+@router.patch("/auth/me", response_model=schemas.UserOut)
 def update_profile(body: ProfileBody, ctx: Ctx = Depends(user_ctx)) -> dict:
     ctx.user.full_name = body.full_name
     ctx.db.commit()
     return user_view(ctx.user)
 
 
-@router.get("/auth/sessions")
+@router.get("/auth/sessions", response_model=schemas.Items[schemas.SessionInfo])
 def sessions(ctx: Ctx = Depends(user_ctx)) -> dict:
     rows = ctx.db.scalars(select(UserSession).where(UserSession.user_id == ctx.user.id, UserSession.revoked_at.is_(None),
                                                     UserSession.expires_at > utcnow()).order_by(UserSession.created_at.desc())).all()
@@ -378,7 +380,7 @@ def sessions(ctx: Ctx = Depends(user_ctx)) -> dict:
                        "last_seen_at": iso(s.last_seen_at), "expires_at": iso(s.expires_at), "current": s.id == ctx.session.id} for s in rows]}
 
 
-@router.delete("/auth/sessions/{session_id}")
+@router.delete("/auth/sessions/{session_id}", response_model=schemas.Ok)
 def revoke_session(session_id: str, ctx: Ctx = Depends(user_ctx)) -> dict:
     s = ctx.db.get(UserSession, parse_uuid(session_id, "Session"))
     if not s or s.user_id != ctx.user.id:
@@ -389,7 +391,7 @@ def revoke_session(session_id: str, ctx: Ctx = Depends(user_ctx)) -> dict:
     return {"ok": True}
 
 
-@router.get("/auth/login-history")
+@router.get("/auth/login-history", response_model=schemas.Page[schemas.LoginEntry])
 def login_history(paging: Paging = Depends(), ctx: Ctx = Depends(user_ctx)) -> dict:
     q = select(LoginHistory).where(LoginHistory.user_id == ctx.user.id).order_by(LoginHistory.created_at.desc())
     return paginate(ctx.db, q, paging, lambda h: {"id": str(h.id), "success": h.success, "reason": h.reason, "ip": h.ip,
@@ -422,13 +424,13 @@ def _guard_role(ctx: Ctx, role: str | None, target: User | None = None) -> None:
         raise Forbidden("Only a Super Admin can manage Super Admin accounts")
 
 
-@router.get("/users")
+@router.get("/users", response_model=schemas.Page[schemas.UserOut])
 def list_staff(paging: Paging = Depends(), ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
     q = select(User).where(User.platform_role.is_not(None), User.deleted_at.is_(None)).order_by(User.email)
     return paginate(ctx.db, q, paging, user_view)
 
 
-@router.post("/users", status_code=201)
+@router.post("/users", response_model=schemas.StaffCreated, status_code=201)
 def create_staff(body: StaffCreate, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
     _guard_role(ctx, body.platform_role)
     email = body.email.lower().strip()
@@ -451,7 +453,7 @@ def create_staff(body: StaffCreate, ctx: Ctx = Depends(platform_ctx("platform.us
     return {**user_view(u), "invitation": invitation.view() if invitation else None}
 
 
-@router.post("/users/{user_id}/invitation")
+@router.post("/users/{user_id}/invitation", response_model=schemas.IssuedLinkOut)
 def resend_staff_invitation(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
     u = ctx.db.get(User, parse_uuid(user_id, "User"))
     if not u or u.deleted_at or not u.platform_role:
@@ -465,7 +467,7 @@ def resend_staff_invitation(user_id: str, ctx: Ctx = Depends(platform_ctx("platf
     return invitation.view()
 
 
-@router.post("/users/{user_id}/mfa-reset")
+@router.post("/users/{user_id}/mfa-reset", response_model=schemas.UserOut)
 def reset_user_mfa(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
     """For a lost phone: switch off someone's two-factor sign-in and sign them out everywhere.
     Staff who are required to use it set it up again at their next sign-in."""
@@ -487,7 +489,7 @@ def reset_user_mfa(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.users
     return user_view(u)
 
 
-@router.post("/users/{user_id}/reset-link")
+@router.post("/users/{user_id}/reset-link", response_model=schemas.IssuedLinkOut)
 def issue_reset_link(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
     """Staff-issued password reset link for any account, for when platform email is not configured
     or the person cannot reach their inbox. Single use, one hour, audited."""
@@ -503,7 +505,7 @@ def issue_reset_link(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.use
     return {"url": url, "expires_at": iso(row.expires_at)}
 
 
-@router.patch("/users/{user_id}")
+@router.patch("/users/{user_id}", response_model=schemas.UserOut)
 def update_staff(user_id: str, body: StaffUpdate, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
     u = ctx.db.get(User, parse_uuid(user_id, "User"))
     if not u or u.deleted_at or not u.platform_role:
@@ -541,7 +543,7 @@ def update_staff(user_id: str, body: StaffUpdate, ctx: Ctx = Depends(platform_ct
 # ----------------------------------------------------------------------------- roles & settings
 
 
-@router.get("/roles")
+@router.get("/roles", response_model=schemas.RolesOut)
 def list_roles(ctx: Ctx = Depends(platform_ctx())) -> dict:
     db = ctx.db
     roles = db.scalars(select(Role).order_by(Role.scope.desc(), Role.key)).all()
@@ -557,7 +559,7 @@ class RoleGrants(Body):
     permissions: list[str]
 
 
-@router.put("/roles/{role_key}")
+@router.put("/roles/{role_key}", response_model=schemas.RoleGrantsOut)
 def set_role_permissions(role_key: str, body: RoleGrants, ctx: Ctx = Depends(platform_ctx("platform.settings.manage"))) -> dict:
     db = ctx.db
     role = db.scalar(select(Role).where(Role.key == role_key))
@@ -582,7 +584,7 @@ def set_role_permissions(role_key: str, body: RoleGrants, ctx: Ctx = Depends(pla
     return {"key": role.key, "permissions": sorted(set(body.permissions))}
 
 
-@router.get("/settings")
+@router.get("/settings", response_model=schemas.SettingsOut)
 def list_settings(ctx: Ctx = Depends(platform_ctx("platform.settings.manage"))) -> dict:
     from app.ai.providers import ANTHROPIC_MODELS
     from app.ai.service import DEFAULT_PRICING
@@ -612,7 +614,7 @@ EDITABLE_SETTINGS = {"billing.default_plan": str, "ai.default": dict, "ai.model_
                      "security.staff_mfa_required": bool}
 
 
-@router.put("/settings/{key}")
+@router.put("/settings/{key}", response_model=schemas.SettingOut)
 def put_setting(key: str, body: SettingBody, ctx: Ctx = Depends(platform_ctx("platform.settings.manage"))) -> dict:
     expected = EDITABLE_SETTINGS.get(key)
     if not expected:

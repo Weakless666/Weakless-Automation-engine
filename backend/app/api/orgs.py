@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends
 from pydantic import EmailStr, Field
 from sqlalchemy import func, or_, select
 
+from app.api import schemas
+from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, owned, paginate, parse_uuid
 from app.core.errors import AppError, Conflict, Forbidden, NotFound, ValidationFailed
 from app.core.security import hash_password, validate_password_strength
@@ -18,7 +20,7 @@ from app.services.audit import audit
 from app.services.organizations import create_organization
 from app.services.workflows import slugify
 
-router = APIRouter(tags=["organizations"])
+router = APIRouter(route_class=ApiRoute, tags=["organizations"])
 
 
 def org_view(o: Organization) -> dict:
@@ -61,7 +63,7 @@ class OrgUpdate(Body):
     ai_default: dict | None = Field(None, description="{provider, model} default for AI nodes")
 
 
-@router.get("/organizations")
+@router.get("/organizations", response_model=schemas.Page[schemas.OrganizationOut])
 def list_organizations(q: str | None = None, status: str | None = None, paging: Paging = Depends(), ctx: Ctx = Depends(authenticate)) -> dict:
     db = ctx.db
     query = select(Organization).where(Organization.deleted_at.is_(None))
@@ -95,7 +97,7 @@ def list_organizations(q: str | None = None, status: str | None = None, paging: 
     return page
 
 
-@router.post("/organizations", status_code=201)
+@router.post("/organizations", response_model=schemas.OrganizationOut, status_code=201)
 def create_org(body: OrgCreate, ctx: Ctx = Depends(platform_ctx("platform.organizations.create"))) -> dict:
     client = body.client.model_dump(exclude_none=True) if body.client else None
     org = create_organization(ctx.db, name=body.name, industry=body.industry, mode=body.mode, plan_key=body.plan_key, client=client)
@@ -104,7 +106,7 @@ def create_org(body: OrgCreate, ctx: Ctx = Depends(platform_ctx("platform.organi
     return org_view(org)
 
 
-@router.get("/organizations/{org_id}")
+@router.get("/organizations/{org_id}", response_model=schemas.OrganizationDetail)
 def get_org(org_id: str, ctx: Ctx = Depends(authenticate)) -> dict:
     resolve_org(ctx, parse_uuid(org_id, "Organization"))
     ctx.require("org.read")
@@ -112,7 +114,7 @@ def get_org(org_id: str, ctx: Ctx = Depends(authenticate)) -> dict:
     return {**org_view(ctx.org), "client": client_view(client), "role": ctx.role, "permissions": sorted(ctx.permissions)}
 
 
-@router.patch("/organizations/{org_id}")
+@router.patch("/organizations/{org_id}", response_model=schemas.OrganizationOut)
 def update_org(org_id: str, body: OrgUpdate, ctx: Ctx = Depends(authenticate)) -> dict:
     resolve_org(ctx, parse_uuid(org_id, "Organization"))
     ctx.require("org.manage")
@@ -134,7 +136,7 @@ def update_org(org_id: str, body: OrgUpdate, ctx: Ctx = Depends(authenticate)) -
     return org_view(org)
 
 
-@router.delete("/organizations/{org_id}")
+@router.delete("/organizations/{org_id}", response_model=schemas.Ok)
 def archive_org(org_id: str, ctx: Ctx = Depends(platform_ctx("platform.organizations.create"))) -> dict:
     org = ctx.db.get(Organization, parse_uuid(org_id, "Organization"))
     if not org or org.deleted_at:
@@ -150,7 +152,7 @@ def archive_org(org_id: str, ctx: Ctx = Depends(platform_ctx("platform.organizat
     return {"ok": True}
 
 
-@router.put("/organizations/{org_id}/client")
+@router.put("/organizations/{org_id}/client", response_model=schemas.ClientProfile)
 def update_client(org_id: str, body: ClientBody, ctx: Ctx = Depends(authenticate)) -> dict:
     resolve_org(ctx, parse_uuid(org_id, "Organization"))
     ctx.require("org.manage")
@@ -193,13 +195,13 @@ def _check_role(role: str) -> None:
         raise ValidationFailed(f"Role must be one of: {', '.join(CLIENT_ROLES)}")
 
 
-@router.get("/members")
+@router.get("/members", response_model=schemas.Page[schemas.MemberOut])
 def list_members(paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("members.read"))) -> dict:
     q = select(OrganizationMember).where(OrganizationMember.organization_id == ctx.org_id).order_by(OrganizationMember.created_at)
     return paginate(ctx.db, q, paging, member_view)
 
 
-@router.post("/members", status_code=201)
+@router.post("/members", response_model=schemas.MemberCreated, status_code=201)
 def add_member(body: MemberCreate, ctx: Ctx = Depends(org_ctx("members.manage"))) -> dict:
     _check_role(body.role)
     db = ctx.db
@@ -239,7 +241,7 @@ def add_member(body: MemberCreate, ctx: Ctx = Depends(org_ctx("members.manage"))
     return {**member_view(m), "invitation": invitation.view() if invitation else None}
 
 
-@router.post("/members/{member_id}/invitation")
+@router.post("/members/{member_id}/invitation", response_model=schemas.IssuedLinkOut)
 def resend_invitation(member_id: str, ctx: Ctx = Depends(org_ctx("members.manage"))) -> dict:
     """Issue a new invitation link (the previous one stops working)."""
     m = owned(ctx.db, OrganizationMember, member_id, ctx.org_id, "Member")
@@ -260,7 +262,7 @@ def _last_admin(ctx: Ctx, m: OrganizationMember) -> bool:
     return others == 0 and not ctx.is_staff
 
 
-@router.patch("/members/{member_id}")
+@router.patch("/members/{member_id}", response_model=schemas.MemberOut)
 def update_member(member_id: str, body: MemberUpdate, ctx: Ctx = Depends(org_ctx("members.manage"))) -> dict:
     m = owned(ctx.db, OrganizationMember, member_id, ctx.org_id, "Member")
     if body.role:
@@ -283,7 +285,7 @@ def update_member(member_id: str, body: MemberUpdate, ctx: Ctx = Depends(org_ctx
     return member_view(m)
 
 
-@router.delete("/members/{member_id}")
+@router.delete("/members/{member_id}", response_model=schemas.Ok)
 def remove_member(member_id: str, ctx: Ctx = Depends(org_ctx("members.manage"))) -> dict:
     m = owned(ctx.db, OrganizationMember, member_id, ctx.org_id, "Member")
     if _last_admin(ctx, m):
@@ -307,13 +309,13 @@ def ws_view(w: Workspace) -> dict:
     return {"id": str(w.id), "name": w.name, "slug": w.slug, "is_default": w.is_default, "created_at": iso(w.created_at)}
 
 
-@router.get("/workspaces")
+@router.get("/workspaces", response_model=schemas.Items[schemas.WorkspaceOut])
 def list_workspaces(ctx: Ctx = Depends(org_ctx("org.read"))) -> dict:
     rows = ctx.db.scalars(select(Workspace).where(Workspace.organization_id == ctx.org_id).order_by(Workspace.created_at)).all()
     return {"items": [ws_view(w) for w in rows]}
 
 
-@router.post("/workspaces", status_code=201)
+@router.post("/workspaces", response_model=schemas.WorkspaceOut, status_code=201)
 def create_workspace(body: WorkspaceBody, ctx: Ctx = Depends(org_ctx("org.manage"))) -> dict:
     slug = slugify(body.name)
     if ctx.db.scalar(select(Workspace.id).where(Workspace.organization_id == ctx.org_id, Workspace.slug == slug)):
@@ -325,7 +327,7 @@ def create_workspace(body: WorkspaceBody, ctx: Ctx = Depends(org_ctx("org.manage
     return ws_view(w)
 
 
-@router.delete("/workspaces/{workspace_id}")
+@router.delete("/workspaces/{workspace_id}", response_model=schemas.Ok)
 def delete_workspace(workspace_id: str, ctx: Ctx = Depends(org_ctx("org.manage"))) -> dict:
     w = owned(ctx.db, Workspace, workspace_id, ctx.org_id, "Workspace")
     if w.is_default:

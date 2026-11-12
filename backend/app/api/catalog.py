@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends
 from pydantic import Field
 from sqlalchemy import func, or_, select
 
+from app.api import schemas
+from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, owned, paginate, parse_uuid
 from app.core.errors import Conflict, Forbidden, NotFound
 from app.deps import Ctx, authenticate, org_ctx, platform_ctx
@@ -18,7 +20,7 @@ from app.services.audit import audit
 from app.templates import service
 from app.templates.library import CATEGORIES
 
-router = APIRouter(tags=["templates"])
+router = APIRouter(route_class=ApiRoute, tags=["templates"])
 
 
 def template_view(t: AutomationTemplate, version: TemplateVersion | None = None, full: bool = False) -> dict:
@@ -39,7 +41,7 @@ def _require_catalog_access(ctx: Ctx) -> None:
             raise Forbidden("Missing permission: templates.read")
 
 
-@router.get("/templates")
+@router.get("/templates", response_model=schemas.TemplatePage)
 def list_templates(category: str | None = None, industry: str | None = None, q: str | None = None, paging: Paging = Depends(),
                    ctx: Ctx = Depends(authenticate)) -> dict:
     _require_catalog_access(ctx)
@@ -60,7 +62,7 @@ def list_templates(category: str | None = None, industry: str | None = None, q: 
     return page
 
 
-@router.get("/templates/{template_id}")
+@router.get("/templates/{template_id}", response_model=schemas.TemplateOut)
 def get_template(template_id: str, ctx: Ctx = Depends(authenticate)) -> dict:
     _require_catalog_access(ctx)
     t = ctx.db.get(AutomationTemplate, parse_uuid(template_id, "Template"))
@@ -97,7 +99,7 @@ class TemplateUpdate(Body):
     changelog: str = ""
 
 
-@router.post("/templates", status_code=201)
+@router.post("/templates", response_model=schemas.TemplateOut, status_code=201)
 def create_template(body: TemplateCreate, ctx: Ctx = Depends(platform_ctx("platform.templates.manage"))) -> dict:
     if ctx.db.scalar(select(AutomationTemplate.id).where(AutomationTemplate.key == body.key)):
         raise Conflict("A template with this key already exists")
@@ -111,7 +113,7 @@ def create_template(body: TemplateCreate, ctx: Ctx = Depends(platform_ctx("platf
     return template_view(t, version, full=True)
 
 
-@router.patch("/templates/{template_id}")
+@router.patch("/templates/{template_id}", response_model=schemas.TemplateOut)
 def update_template(template_id: str, body: TemplateUpdate, ctx: Ctx = Depends(platform_ctx("platform.templates.manage"))) -> dict:
     t = ctx.db.get(AutomationTemplate, parse_uuid(template_id, "Template"))
     if not t:
@@ -138,7 +140,7 @@ class WorkflowAsTemplate(Body):
     description: str = ""
 
 
-@router.post("/templates/from-workflow", status_code=201)
+@router.post("/templates/from-workflow", response_model=schemas.TemplateOut, status_code=201)
 def template_from_workflow(body: WorkflowAsTemplate, ctx: Ctx = Depends(org_ctx("workflows.read"))) -> dict:
     """Turn a workflow into a reusable global template (a reusable automation component)."""
     if "platform.templates.manage" not in ctx.permissions:
@@ -188,7 +190,7 @@ class InstallBody(Body):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
-@router.post("/templates/{template_id}/install", status_code=201)
+@router.post("/templates/{template_id}/install", response_model=schemas.InstalledTemplateOut, status_code=201)
 def install(template_id: str, body: InstallBody | None = None, ctx: Ctx = Depends(org_ctx("templates.read"))) -> dict:
     _can_install(ctx)
     t = ctx.db.get(AutomationTemplate, parse_uuid(template_id, "Template"))
@@ -200,14 +202,14 @@ def install(template_id: str, body: InstallBody | None = None, ctx: Ctx = Depend
     return installed_view(ctx, installed)
 
 
-@router.get("/installed-templates")
+@router.get("/installed-templates", response_model=schemas.Page[schemas.InstalledTemplateOut])
 def list_installed(paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("templates.read"))) -> dict:
     q = select(InstalledTemplate).where(InstalledTemplate.organization_id == ctx.org_id, InstalledTemplate.status != "removed") \
         .order_by(InstalledTemplate.created_at.desc())
     return paginate(ctx.db, q, paging, lambda i: installed_view(ctx, i))
 
 
-@router.put("/installed-templates/{installed_id}/config")
+@router.put("/installed-templates/{installed_id}/config", response_model=schemas.InstalledTemplateOut)
 def configure(installed_id: str, body: InstallBody, ctx: Ctx = Depends(org_ctx("templates.read"))) -> dict:
     _can_install(ctx)
     installed = owned(ctx.db, InstalledTemplate, installed_id, ctx.org_id, "Installed template")
@@ -217,7 +219,7 @@ def configure(installed_id: str, body: InstallBody, ctx: Ctx = Depends(org_ctx("
     return installed_view(ctx, installed)
 
 
-@router.post("/installed-templates/{installed_id}/update")
+@router.post("/installed-templates/{installed_id}/update", response_model=schemas.InstalledUpdated)
 def update_installed(installed_id: str, ctx: Ctx = Depends(org_ctx("templates.read"))) -> dict:
     _can_install(ctx)
     installed = owned(ctx.db, InstalledTemplate, installed_id, ctx.org_id, "Installed template")
@@ -228,7 +230,7 @@ def update_installed(installed_id: str, ctx: Ctx = Depends(org_ctx("templates.re
     return {"updated": changed, "installed": installed_view(ctx, installed)}
 
 
-@router.delete("/installed-templates/{installed_id}")
+@router.delete("/installed-templates/{installed_id}", response_model=schemas.Ok)
 def uninstall(installed_id: str, ctx: Ctx = Depends(org_ctx("templates.read"))) -> dict:
     """Mark the installation removed. The workflow is kept (deactivated) so history is preserved."""
     _can_install(ctx)
@@ -259,7 +261,7 @@ def package_view(ctx: Ctx, p: IndustryPackage, full: bool = False) -> dict:
     return out
 
 
-@router.get("/industry-packages")
+@router.get("/industry-packages", response_model=schemas.Items[schemas.PackageOut])
 def list_packages(ctx: Ctx = Depends(authenticate)) -> dict:
     _require_catalog_access(ctx)
     q = select(IndustryPackage).order_by(IndustryPackage.name)
@@ -268,7 +270,7 @@ def list_packages(ctx: Ctx = Depends(authenticate)) -> dict:
     return {"items": [package_view(ctx, p) for p in ctx.db.scalars(q)]}
 
 
-@router.get("/industry-packages/{package_id}")
+@router.get("/industry-packages/{package_id}", response_model=schemas.PackageOut)
 def get_package(package_id: str, ctx: Ctx = Depends(authenticate)) -> dict:
     _require_catalog_access(ctx)
     p = ctx.db.get(IndustryPackage, parse_uuid(package_id, "Package"))
@@ -299,7 +301,7 @@ def _set_items(ctx: Ctx, p: IndustryPackage, template_ids: list[str]) -> None:
     ctx.db.flush()
 
 
-@router.post("/industry-packages", status_code=201)
+@router.post("/industry-packages", response_model=schemas.PackageOut, status_code=201)
 def create_package(body: PackageBody, ctx: Ctx = Depends(platform_ctx("platform.templates.manage"))) -> dict:
     if ctx.db.scalar(select(IndustryPackage.id).where(IndustryPackage.key == body.key)):
         raise Conflict("A package with this key already exists")
@@ -312,7 +314,7 @@ def create_package(body: PackageBody, ctx: Ctx = Depends(platform_ctx("platform.
     return package_view(ctx, p, full=True)
 
 
-@router.put("/industry-packages/{package_id}")
+@router.put("/industry-packages/{package_id}", response_model=schemas.PackageOut)
 def update_package(package_id: str, body: PackageBody, ctx: Ctx = Depends(platform_ctx("platform.templates.manage"))) -> dict:
     p = ctx.db.get(IndustryPackage, parse_uuid(package_id, "Package"))
     if not p:
@@ -330,7 +332,7 @@ class PackageInstall(Body):
     config: dict[str, Any] = Field(default_factory=dict, description="Shared configuration applied to each template that defines the key")
 
 
-@router.post("/industry-packages/{package_id}/install", status_code=201)
+@router.post("/industry-packages/{package_id}/install", response_model=schemas.PackageInstalled, status_code=201)
 def install_package(package_id: str, body: PackageInstall | None = None, ctx: Ctx = Depends(org_ctx("templates.read"))) -> dict:
     _can_install(ctx)
     p = ctx.db.get(IndustryPackage, parse_uuid(package_id, "Package"))

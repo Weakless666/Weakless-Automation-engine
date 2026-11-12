@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Callable, TypeVar
 
 from fastapi import Query
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -13,6 +14,16 @@ from sqlalchemy.orm import Session
 from app.core.errors import NotFound, ValidationFailed
 
 T = TypeVar("T")
+
+
+class ApiRoute(APIRoute):
+    """Responses contain exactly the fields the handler returned: response models document and
+    type-check them, but never add fields (optional fields are omitted, not sent as null).
+    APIRouter always passes this flag explicitly (False), so it is forced rather than defaulted."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs["response_model_exclude_unset"] = True
+        super().__init__(*args, **kwargs)
 
 
 class Body(BaseModel):

@@ -18,7 +18,7 @@
 | 12 | Vault and security hardening | Envelope encryption, rotation, redaction, SSRF guard, audit |
 | 13 | Analytics and monitoring | Overview, time series, per-workflow, AI, integration and system health |
 | 14 | Billing and usage | Metering, quotas, alerts, plans, manual and Stripe providers |
-| 15 | Testing, documentation, deployment | 58 backend tests; README and documents; Dockerfiles, compose, CI (unverified) |
+| 15 | Testing, documentation, deployment | 86 backend tests (OpenAPI typed for every response); 24 browser tests; README and documents; Dockerfiles, compose, CI (unverified) |
 
 ## What should happen next
 
@@ -39,7 +39,7 @@ Ordered by how much risk each item removes.
 ### 3. Close product gaps
 9. ~~Browser end-to-end tests for every main screen~~ (done 2026-11-12).
 10. ~~Password reset, email invitations and two-factor sign-in for staff~~ (done 2026-11-12); SSO and passkeys later.
-11. Typed response models so OpenAPI documents responses.
+11. ~~Typed response models so OpenAPI documents responses~~ (done 2026-11-12).
 12. Live execution updates over WebSocket or SSE if polling proves too slow.
 13. Vector search for knowledge bases once an embedding provider is chosen.
 14. Mailbox polling for the Email trigger if clients cannot use inbound-parse webhooks.

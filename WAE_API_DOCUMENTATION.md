@@ -5,7 +5,7 @@ REST, JSON, versioned under `/api/v1`. The complete machine-readable reference i
 - live: `GET /api/openapi.json` and interactive docs at `/api/docs`
 - committed snapshot: [docs/openapi.json](docs/openapi.json) (127 paths, 158 operations) - regenerate with `python -m app.cli export-openapi ../docs/openapi.json`
 
-Request bodies are fully described in OpenAPI. Response bodies are documented as generic objects: typed response models are not declared yet.
+Request and response bodies are both typed in OpenAPI (198 schemas). Every operation names its success model (for example `WorkflowDetail`, `Page_ExecutionOut_`) and documents 400/401/402/403/404/409/422/429/500 as `ErrorEnvelope`. Response models list the fields a response can contain; a field the server did not set is omitted rather than sent as `null`, and models allow additional fields, so clients should ignore unknown keys. `backend/tests/test_openapi.py` fails the build if an endpoint is added without a typed response.
 
 ## Conventions
 

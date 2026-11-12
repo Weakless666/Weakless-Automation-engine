@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Header
 from pydantic import Field
 from sqlalchemy import func, select
 
+from app.api import schemas
+from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, owned, paginate, parse_dt, parse_uuid
 from app.config import get_settings
 from app.core.errors import Conflict, NotFound, ValidationFailed
@@ -24,10 +26,10 @@ from app.services.approvals import decide_approval
 from app.services.audit import audit
 from app.services.executions import cancel_execution, resume_execution, retry_execution, start_execution
 
-router = APIRouter(tags=["workflows"])
+router = APIRouter(route_class=ApiRoute, tags=["workflows"])
 
 
-@router.get("/locate/{kind}/{resource_id}")
+@router.get("/locate/{kind}/{resource_id}", response_model=schemas.LocateOut)
 def locate(kind: str, resource_id: str, ctx: Ctx = Depends(platform_ctx())) -> dict:
     """Staff only: which organization owns a workflow or agent, so a deep link can open in the right tenant."""
     from app.models import AIAgent
@@ -39,7 +41,7 @@ def locate(kind: str, resource_id: str, ctx: Ctx = Depends(platform_ctx())) -> d
     return {"organization_id": str(obj.organization_id)}
 
 
-@router.get("/node-types")
+@router.get("/node-types", response_model=schemas.Items[schemas.NodeTypeOut])
 def node_types(ctx: Ctx = Depends(org_ctx("workflows.read"))) -> dict:
     """The controlled node registry: everything the builder can place on the canvas."""
     return {"items": [s.describe() for s in all_specs()]}
@@ -72,7 +74,7 @@ class DraftBody(Body):
     base_revision: int | None = Field(None, description="Reject the save if the draft changed since this revision")
 
 
-@router.get("/workflows")
+@router.get("/workflows", response_model=schemas.Page[schemas.WorkflowOut])
 def list_workflows(q: str | None = None, active: bool | None = None, paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("workflows.read"))) -> dict:
     db = ctx.db
     query = select(Workflow).where(Workflow.organization_id == ctx.org_id, Workflow.deleted_at.is_(None))
@@ -96,7 +98,7 @@ def list_workflows(q: str | None = None, active: bool | None = None, paging: Pag
     return page
 
 
-@router.post("/workflows", status_code=201)
+@router.post("/workflows", response_model=schemas.WorkflowOut, status_code=201)
 def create_workflow(body: WorkflowCreate, ctx: Ctx = Depends(org_ctx("workflows.write"))) -> dict:
     ws_id = owned(ctx.db, Workspace, body.workspace_id, ctx.org_id, "Workspace").id if body.workspace_id else None
     definition = body.definition or {
@@ -121,7 +123,7 @@ def _triggers(ctx: Ctx, wf: Workflow) -> dict:
     }
 
 
-@router.get("/workflows/{workflow_id}")
+@router.get("/workflows/{workflow_id}", response_model=schemas.WorkflowDetail)
 def get_workflow(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.read"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     definition = wfs.draft_definition(ctx.db, wf)
@@ -133,7 +135,7 @@ def get_workflow(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.read"))
     })
 
 
-@router.patch("/workflows/{workflow_id}")
+@router.patch("/workflows/{workflow_id}", response_model=schemas.WorkflowOut)
 def update_workflow(workflow_id: str, body: WorkflowUpdate, ctx: Ctx = Depends(org_ctx("workflows.write"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     changes = body.model_dump(exclude_none=True)
@@ -148,7 +150,7 @@ def update_workflow(workflow_id: str, body: WorkflowUpdate, ctx: Ctx = Depends(o
     return wf_view(wf)
 
 
-@router.delete("/workflows/{workflow_id}")
+@router.delete("/workflows/{workflow_id}", response_model=schemas.Ok)
 def delete_workflow(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.write"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     if wf.is_active:
@@ -161,7 +163,7 @@ def delete_workflow(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.writ
     return {"ok": True}
 
 
-@router.put("/workflows/{workflow_id}/draft")
+@router.put("/workflows/{workflow_id}/draft", response_model=schemas.DraftSaved)
 def save_draft(workflow_id: str, body: DraftBody, ctx: Ctx = Depends(org_ctx("workflows.write"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     if body.base_revision is not None and body.base_revision != wf.draft_revision:
@@ -171,7 +173,7 @@ def save_draft(workflow_id: str, body: DraftBody, ctx: Ctx = Depends(org_ctx("wo
     return {"draft_revision": wf.draft_revision, "issues": issues, "triggers": _triggers(ctx, wf)}
 
 
-@router.post("/workflows/{workflow_id}/validate")
+@router.post("/workflows/{workflow_id}/validate", response_model=schemas.IssuesOut)
 def validate(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.read"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     return {"issues": validate_definition(wfs.draft_definition(ctx.db, wf))}
@@ -189,7 +191,7 @@ def version_view(v: WorkflowVersion, with_definition: bool = False) -> dict:
     return out
 
 
-@router.post("/workflows/{workflow_id}/publish")
+@router.post("/workflows/{workflow_id}/publish", response_model=schemas.VersionOut)
 def publish(workflow_id: str, body: PublishBody | None = None, ctx: Ctx = Depends(org_ctx("workflows.publish"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     version = wfs.publish(ctx.db, wf, ctx.user.id, body.notes if body else "")
@@ -198,14 +200,14 @@ def publish(workflow_id: str, body: PublishBody | None = None, ctx: Ctx = Depend
     return version_view(version)
 
 
-@router.get("/workflows/{workflow_id}/versions")
+@router.get("/workflows/{workflow_id}/versions", response_model=schemas.Items[schemas.VersionOut])
 def list_versions(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.read"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     rows = ctx.db.scalars(select(WorkflowVersion).where(WorkflowVersion.workflow_id == wf.id).order_by(WorkflowVersion.version.desc())).all()
     return {"items": [{**version_view(v), "is_current": v.id == wf.current_version_id} for v in rows]}
 
 
-@router.get("/workflows/{workflow_id}/versions/{version_id}")
+@router.get("/workflows/{workflow_id}/versions/{version_id}", response_model=schemas.VersionDetail)
 def get_version(workflow_id: str, version_id: str, ctx: Ctx = Depends(org_ctx("workflows.read"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     v = owned(ctx.db, WorkflowVersion, version_id, ctx.org_id, "Version")
@@ -214,7 +216,7 @@ def get_version(workflow_id: str, version_id: str, ctx: Ctx = Depends(org_ctx("w
     return version_view(v, with_definition=True)
 
 
-@router.post("/workflows/{workflow_id}/versions/{version_id}/restore")
+@router.post("/workflows/{workflow_id}/versions/{version_id}/restore", response_model=schemas.DraftRevision)
 def restore_version(workflow_id: str, version_id: str, ctx: Ctx = Depends(org_ctx("workflows.write"))) -> dict:
     """Copy a published version back into the draft (published versions themselves are immutable)."""
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
@@ -227,7 +229,7 @@ def restore_version(workflow_id: str, version_id: str, ctx: Ctx = Depends(org_ct
     return {"draft_revision": wf.draft_revision}
 
 
-@router.post("/workflows/{workflow_id}/activate")
+@router.post("/workflows/{workflow_id}/activate", response_model=schemas.WorkflowOut)
 def activate(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.activate"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     wfs.set_active(ctx.db, wf, True)
@@ -236,7 +238,7 @@ def activate(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.activate"))
     return wf_view(wf)
 
 
-@router.post("/workflows/{workflow_id}/deactivate")
+@router.post("/workflows/{workflow_id}/deactivate", response_model=schemas.WorkflowOut)
 def deactivate(workflow_id: str, ctx: Ctx = Depends(org_ctx("workflows.activate"))) -> dict:
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
     wfs.set_active(ctx.db, wf, False)
@@ -250,7 +252,7 @@ class ExecuteBody(Body):
     trigger_node: str | None = None
 
 
-@router.post("/workflows/{workflow_id}/execute", status_code=202)
+@router.post("/workflows/{workflow_id}/execute", response_model=schemas.ExecutionOut, status_code=202)
 def execute(workflow_id: str, body: ExecuteBody | None = None, idempotency_key: str | None = Header(None, max_length=200),
             ctx: Ctx = Depends(org_ctx("workflows.execute"))) -> dict:
     """Run the published version. Send an ``Idempotency-Key`` header to make retries of this call safe."""
@@ -262,7 +264,7 @@ def execute(workflow_id: str, body: ExecuteBody | None = None, idempotency_key: 
     return exec_view(ex)
 
 
-@router.post("/workflows/{workflow_id}/test", status_code=202)
+@router.post("/workflows/{workflow_id}/test", response_model=schemas.ExecutionOut, status_code=202)
 def test_run(workflow_id: str, body: ExecuteBody | None = None, ctx: Ctx = Depends(org_ctx("workflows.write"))) -> dict:
     """Run the current *draft* as a test execution. Test runs perform real actions but are excluded from quotas and analytics."""
     wf = owned(ctx.db, Workflow, workflow_id, ctx.org_id, "Workflow")
@@ -284,7 +286,7 @@ def exec_view(e: WorkflowExecution, names: dict | None = None, orgs: dict | None
             "started_at": iso(e.started_at), "finished_at": iso(e.finished_at), "duration_ms": e.duration_ms}
 
 
-@router.get("/executions")
+@router.get("/executions", response_model=schemas.Page[schemas.ExecutionOut])
 def list_executions(status: str | None = None, workflow_id: str | None = None, start: str | None = None, end: str | None = None,
                     include_tests: bool = False, paging: Paging = Depends(), ctx: Ctx = Depends(optional_org_ctx("executions.read"))) -> dict:
     db = ctx.db
@@ -319,7 +321,7 @@ def _get_execution(ctx: Ctx, execution_id: str) -> WorkflowExecution:
     return ex
 
 
-@router.get("/executions/{execution_id}")
+@router.get("/executions/{execution_id}", response_model=schemas.ExecutionDetail)
 def get_execution(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("executions.read"))) -> dict:
     db = ctx.db
     ex = _get_execution(ctx, execution_id)
@@ -347,7 +349,7 @@ def _manage(ctx: Ctx, ex: WorkflowExecution) -> None:
         ctx.require("executions.manage")
 
 
-@router.post("/executions/{execution_id}/cancel")
+@router.post("/executions/{execution_id}/cancel", response_model=schemas.ExecutionOut)
 def cancel(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("executions.read"))) -> dict:
     ex = _get_execution(ctx, execution_id)
     _manage(ctx, ex)
@@ -357,7 +359,7 @@ def cancel(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("executions.re
     return exec_view(ex)
 
 
-@router.post("/executions/{execution_id}/retry", status_code=202)
+@router.post("/executions/{execution_id}/retry", response_model=schemas.ExecutionOut, status_code=202)
 def retry(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("executions.read"))) -> dict:
     ex = _get_execution(ctx, execution_id)
     _manage(ctx, ex)
@@ -372,7 +374,7 @@ class ResumeBody(Body):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
-@router.post("/executions/{execution_id}/resume", status_code=202)
+@router.post("/executions/{execution_id}/resume", response_model=schemas.ResumedOut, status_code=202)
 def resume(execution_id: str, body: ResumeBody | None = None, ctx: Ctx = Depends(optional_org_ctx("executions.read"))) -> dict:
     ex = _get_execution(ctx, execution_id)
     _manage(ctx, ex)
@@ -386,7 +388,7 @@ def resume(execution_id: str, body: ResumeBody | None = None, ctx: Ctx = Depends
 # ----------------------------------------------------------------------------- dead letters (platform)
 
 
-@router.get("/dead-letters")
+@router.get("/dead-letters", response_model=schemas.Page[schemas.DeadLetterOut])
 def dead_letters(paging: Paging = Depends(), ctx: Ctx = Depends(platform_ctx("platform.analytics.read"))) -> dict:
     q = select(ExecutionQueueJob).where(ExecutionQueueJob.status == "DEAD").order_by(ExecutionQueueJob.finished_at.desc())
     return paginate(ctx.db, q, paging, lambda j: {
@@ -394,7 +396,7 @@ def dead_letters(paging: Paging = Depends(), ctx: Ctx = Depends(platform_ctx("pl
         "kind": j.kind, "attempts": j.attempts, "last_error": j.last_error, "finished_at": iso(j.finished_at)})
 
 
-@router.post("/dead-letters/{job_id}/requeue", status_code=202)
+@router.post("/dead-letters/{job_id}/requeue", response_model=schemas.ExecutionOut, status_code=202)
 def requeue_dead_letter(job_id: str, ctx: Ctx = Depends(platform_ctx("executions.manage"))) -> dict:
     """Re-run the work of a dead job as a fresh execution (never re-processes a half-finished one)."""
     job = ctx.db.get(ExecutionQueueJob, parse_uuid(job_id, "Job"))
@@ -419,7 +421,7 @@ def approval_view(a: ApprovalRequest) -> dict:
             "decided_at": iso(a.decided_at), "decision_note": a.decision_note, "expires_at": iso(a.expires_at), "created_at": iso(a.created_at)}
 
 
-@router.get("/approvals")
+@router.get("/approvals", response_model=schemas.Page[schemas.ApprovalOut])
 def list_approvals(status: str | None = "PENDING", paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("executions.read"))) -> dict:
     q = select(ApprovalRequest).where(ApprovalRequest.organization_id == ctx.org_id)
     if status:
@@ -432,7 +434,7 @@ class DecisionBody(Body):
     note: str = Field("", max_length=2000)
 
 
-@router.post("/approvals/{approval_id}/decide")
+@router.post("/approvals/{approval_id}/decide", response_model=schemas.ApprovalOut)
 def decide(approval_id: str, body: DecisionBody, ctx: Ctx = Depends(org_ctx("approvals.decide"))) -> dict:
     req = owned(ctx.db, ApprovalRequest, approval_id, ctx.org_id, "Approval")
     decide_approval(ctx.db, req, approved=body.approved, user_id=ctx.user.id, note=body.note)

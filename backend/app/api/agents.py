@@ -11,6 +11,8 @@ from app.ai import agents as agent_engine
 from app.ai import knowledge
 from app.ai.providers import ANTHROPIC_MODELS
 from app.ai.tools import TOOLS
+from app.api import schemas
+from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, owned, paginate
 from app.core.errors import AppError, Conflict, NodeError, ValidationFailed
 from app.db import utcnow
@@ -20,7 +22,7 @@ from app.models import (
 )
 from app.services.audit import audit
 
-router = APIRouter(tags=["agents"])
+router = APIRouter(route_class=ApiRoute, tags=["agents"])
 PROVIDERS = ("anthropic", "openai", "gemini", "openai_compatible")
 
 
@@ -79,14 +81,14 @@ def _validate_agent(ctx: Ctx, body: AgentBody) -> None:
         owned(ctx.db, KnowledgeBase, kb_id, ctx.org_id, "Knowledge base")
 
 
-@router.get("/agents/meta")
+@router.get("/agents/meta", response_model=schemas.AgentsMeta)
 def agents_meta(ctx: Ctx = Depends(org_ctx("agents.read"))) -> dict:
     return {"agent_types": [{"key": k, "label": v} for k, v in agent_engine.AGENT_TYPES.items()],
             "providers": list(PROVIDERS), "anthropic_models": ANTHROPIC_MODELS, "default_model": "claude-opus-5-5",
             "tools": [t.describe() for t in TOOLS.values()]}
 
 
-@router.get("/agents")
+@router.get("/agents", response_model=schemas.Page[schemas.AgentOut])
 def list_agents(paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("agents.read"))) -> dict:
     q = select(AIAgent).where(AIAgent.organization_id == ctx.org_id, AIAgent.deleted_at.is_(None)).order_by(AIAgent.name)
     page = paginate(ctx.db, q, paging, agent_view)
@@ -109,7 +111,7 @@ def _sync_kb_tool(ctx: Ctx, agent: AIAgent) -> None:
     ctx.db.flush()
 
 
-@router.post("/agents", status_code=201)
+@router.post("/agents", response_model=schemas.AgentOut, status_code=201)
 def create_agent(body: AgentBody, ctx: Ctx = Depends(org_ctx("agents.write"))) -> dict:
     _validate_agent(ctx, body)
     data = body.model_dump()
@@ -127,13 +129,13 @@ def _agent_tools(ctx: Ctx, agent: AIAgent) -> list[AIAgentTool]:
     return list(ctx.db.scalars(select(AIAgentTool).where(AIAgentTool.agent_id == agent.id).order_by(AIAgentTool.name)))
 
 
-@router.get("/agents/{agent_id}")
+@router.get("/agents/{agent_id}", response_model=schemas.AgentOut)
 def get_agent(agent_id: str, ctx: Ctx = Depends(org_ctx("agents.read"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     return agent_view(agent, _agent_tools(ctx, agent))
 
 
-@router.put("/agents/{agent_id}")
+@router.put("/agents/{agent_id}", response_model=schemas.AgentOut)
 def update_agent(agent_id: str, body: AgentBody, ctx: Ctx = Depends(org_ctx("agents.write"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     _validate_agent(ctx, body)
@@ -147,7 +149,7 @@ def update_agent(agent_id: str, body: AgentBody, ctx: Ctx = Depends(org_ctx("age
     return agent_view(agent, _agent_tools(ctx, agent))
 
 
-@router.delete("/agents/{agent_id}")
+@router.delete("/agents/{agent_id}", response_model=schemas.Ok)
 def delete_agent(agent_id: str, ctx: Ctx = Depends(org_ctx("agents.write"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     agent.deleted_at, agent.status = utcnow(), "disabled"
@@ -182,7 +184,7 @@ def _validate_tool(ctx: Ctx, body: ToolBody) -> bool:
     return tool.high_impact if body.requires_approval is None else body.requires_approval
 
 
-@router.post("/agents/{agent_id}/tools", status_code=201)
+@router.post("/agents/{agent_id}/tools", response_model=schemas.AgentToolOut, status_code=201)
 def add_tool(agent_id: str, body: ToolBody, ctx: Ctx = Depends(org_ctx("agents.write"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     requires = _validate_tool(ctx, body)
@@ -197,7 +199,7 @@ def add_tool(agent_id: str, body: ToolBody, ctx: Ctx = Depends(org_ctx("agents.w
     return tool_view(t)
 
 
-@router.put("/agents/{agent_id}/tools/{tool_id}")
+@router.put("/agents/{agent_id}/tools/{tool_id}", response_model=schemas.AgentToolOut)
 def update_tool(agent_id: str, tool_id: str, body: ToolBody, ctx: Ctx = Depends(org_ctx("agents.write"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     t = owned(ctx.db, AIAgentTool, tool_id, ctx.org_id, "Tool")
@@ -210,7 +212,7 @@ def update_tool(agent_id: str, tool_id: str, body: ToolBody, ctx: Ctx = Depends(
     return tool_view(t)
 
 
-@router.delete("/agents/{agent_id}/tools/{tool_id}")
+@router.delete("/agents/{agent_id}/tools/{tool_id}", response_model=schemas.Ok)
 def remove_tool(agent_id: str, tool_id: str, ctx: Ctx = Depends(org_ctx("agents.write"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     t = owned(ctx.db, AIAgentTool, tool_id, ctx.org_id, "Tool")
@@ -236,7 +238,7 @@ def agent_exec_view(e: AIAgentExecution) -> dict:
             "created_at": iso(e.created_at), "finished_at": iso(e.finished_at)}
 
 
-@router.post("/agents/{agent_id}/chat")
+@router.post("/agents/{agent_id}/chat", response_model=schemas.AgentExecutionOut)
 def chat(agent_id: str, body: ChatBody, ctx: Ctx = Depends(org_ctx("agents.run"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     if body.conversation_id:
@@ -250,19 +252,19 @@ def chat(agent_id: str, body: ChatBody, ctx: Ctx = Depends(org_ctx("agents.run")
     return agent_exec_view(aexec)
 
 
-@router.get("/agents/{agent_id}/executions")
+@router.get("/agents/{agent_id}/executions", response_model=schemas.Page[schemas.AgentExecutionOut])
 def agent_executions(agent_id: str, paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("agents.read"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     q = select(AIAgentExecution).where(AIAgentExecution.agent_id == agent.id).order_by(AIAgentExecution.created_at.desc())
     return paginate(ctx.db, q, paging, agent_exec_view)
 
 
-@router.get("/agent-executions/{execution_id}")
+@router.get("/agent-executions/{execution_id}", response_model=schemas.AgentExecutionOut)
 def get_agent_execution(execution_id: str, ctx: Ctx = Depends(org_ctx("agents.read"))) -> dict:
     return agent_exec_view(owned(ctx.db, AIAgentExecution, execution_id, ctx.org_id, "Agent execution"))
 
 
-@router.get("/agents/{agent_id}/conversations")
+@router.get("/agents/{agent_id}/conversations", response_model=schemas.Page[schemas.ConversationOut])
 def conversations(agent_id: str, paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("agents.read"))) -> dict:
     agent = owned(ctx.db, AIAgent, agent_id, ctx.org_id, "Agent")
     q = select(AIConversation).where(AIConversation.agent_id == agent.id).order_by(AIConversation.updated_at.desc())
@@ -270,7 +272,7 @@ def conversations(agent_id: str, paging: Paging = Depends(), ctx: Ctx = Depends(
                                                   "created_at": iso(c.created_at), "updated_at": iso(c.updated_at)})
 
 
-@router.get("/conversations/{conversation_id}/messages")
+@router.get("/conversations/{conversation_id}/messages", response_model=schemas.Items[schemas.MessageOut])
 def messages(conversation_id: str, ctx: Ctx = Depends(org_ctx("agents.read"))) -> dict:
     conv = owned(ctx.db, AIConversation, conversation_id, ctx.org_id, "Conversation")
     rows = ctx.db.scalars(select(AIMessage).where(AIMessage.conversation_id == conv.id).order_by(AIMessage.sequence).limit(500)).all()
@@ -298,7 +300,7 @@ def kb_view(kb: KnowledgeBase, docs: int = 0, chunks: int = 0) -> dict:
     return {"id": str(kb.id), "name": kb.name, "description": kb.description, "documents": docs, "chunks": chunks, "created_at": iso(kb.created_at)}
 
 
-@router.get("/knowledge-bases")
+@router.get("/knowledge-bases", response_model=schemas.Items[schemas.KnowledgeBaseOut])
 def list_kbs(ctx: Ctx = Depends(org_ctx("knowledge.read"))) -> dict:
     db = ctx.db
     kbs = db.scalars(select(KnowledgeBase).where(KnowledgeBase.organization_id == ctx.org_id).order_by(KnowledgeBase.name)).all()
@@ -309,7 +311,7 @@ def list_kbs(ctx: Ctx = Depends(org_ctx("knowledge.read"))) -> dict:
     return {"items": [kb_view(k, docs.get(k.id, 0), chunks.get(k.id, 0)) for k in kbs]}
 
 
-@router.post("/knowledge-bases", status_code=201)
+@router.post("/knowledge-bases", response_model=schemas.KnowledgeBaseOut, status_code=201)
 def create_kb(body: KbBody, ctx: Ctx = Depends(org_ctx("knowledge.write"))) -> dict:
     if ctx.db.scalar(select(KnowledgeBase.id).where(KnowledgeBase.organization_id == ctx.org_id, KnowledgeBase.name == body.name)):
         raise Conflict("A knowledge base with this name already exists")
@@ -319,7 +321,7 @@ def create_kb(body: KbBody, ctx: Ctx = Depends(org_ctx("knowledge.write"))) -> d
     return kb_view(kb)
 
 
-@router.delete("/knowledge-bases/{kb_id}")
+@router.delete("/knowledge-bases/{kb_id}", response_model=schemas.Ok)
 def delete_kb(kb_id: str, ctx: Ctx = Depends(org_ctx("knowledge.write"))) -> dict:
     kb = owned(ctx.db, KnowledgeBase, kb_id, ctx.org_id, "Knowledge base")
     ctx.db.delete(kb)  # documents and chunks cascade
@@ -328,7 +330,7 @@ def delete_kb(kb_id: str, ctx: Ctx = Depends(org_ctx("knowledge.write"))) -> dic
     return {"ok": True}
 
 
-@router.get("/knowledge-bases/{kb_id}/documents")
+@router.get("/knowledge-bases/{kb_id}/documents", response_model=schemas.Page[schemas.KnowledgeDocumentOut])
 def list_docs(kb_id: str, paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx("knowledge.read"))) -> dict:
     kb = owned(ctx.db, KnowledgeBase, kb_id, ctx.org_id, "Knowledge base")
     q = select(KnowledgeDocument).where(KnowledgeDocument.knowledge_base_id == kb.id).order_by(KnowledgeDocument.created_at.desc())
@@ -336,7 +338,7 @@ def list_docs(kb_id: str, paging: Paging = Depends(), ctx: Ctx = Depends(org_ctx
                                                   "created_at": iso(d.created_at)})
 
 
-@router.post("/knowledge-bases/{kb_id}/documents", status_code=201)
+@router.post("/knowledge-bases/{kb_id}/documents", response_model=schemas.DocumentCreated, status_code=201)
 def add_doc(kb_id: str, body: DocBody, ctx: Ctx = Depends(org_ctx("knowledge.write"))) -> dict:
     kb = owned(ctx.db, KnowledgeBase, kb_id, ctx.org_id, "Knowledge base")
     doc = knowledge.add_document(ctx.db, kb, body.title, body.content, body.source)
@@ -344,7 +346,7 @@ def add_doc(kb_id: str, body: DocBody, ctx: Ctx = Depends(org_ctx("knowledge.wri
     return {"id": str(doc.id), "title": doc.title}
 
 
-@router.delete("/knowledge-bases/{kb_id}/documents/{doc_id}")
+@router.delete("/knowledge-bases/{kb_id}/documents/{doc_id}", response_model=schemas.Ok)
 def delete_doc(kb_id: str, doc_id: str, ctx: Ctx = Depends(org_ctx("knowledge.write"))) -> dict:
     kb = owned(ctx.db, KnowledgeBase, kb_id, ctx.org_id, "Knowledge base")
     doc = owned(ctx.db, KnowledgeDocument, doc_id, ctx.org_id, "Document")
@@ -360,7 +362,7 @@ class SearchBody(Body):
     limit: int = Field(5, ge=1, le=20)
 
 
-@router.post("/knowledge-bases/{kb_id}/search")
+@router.post("/knowledge-bases/{kb_id}/search", response_model=schemas.SearchResults)
 def search_kb(kb_id: str, body: SearchBody, ctx: Ctx = Depends(org_ctx("knowledge.read"))) -> dict:
     kb = owned(ctx.db, KnowledgeBase, kb_id, ctx.org_id, "Knowledge base")
     return {"results": knowledge.search(ctx.db, ctx.org_id, [kb.id], body.query, body.limit)}

@@ -8,6 +8,8 @@ from fastapi.responses import RedirectResponse
 from pydantic import Field
 from sqlalchemy import select
 
+from app.api import schemas
+from app.api.common import ApiRoute
 from app.api.common import Body, iso, owned
 from app.config import get_settings
 from app.core.errors import AppError, Conflict, NodeError
@@ -18,10 +20,10 @@ from app.integrations.providers import PROVIDERS
 from app.models import Integration
 from app.services.audit import audit
 
-router = APIRouter(tags=["integrations"])
+router = APIRouter(route_class=ApiRoute, tags=["integrations"])
 
 
-@router.get("/integrations/providers")
+@router.get("/integrations/providers", response_model=schemas.Items[schemas.ProviderOut])
 def providers(ctx: Ctx = Depends(org_ctx("integrations.read"))) -> dict:
     items = []
     for p in PROVIDERS.values():
@@ -33,7 +35,7 @@ def providers(ctx: Ctx = Depends(org_ctx("integrations.read"))) -> dict:
     return {"items": items}
 
 
-@router.get("/integrations")
+@router.get("/integrations", response_model=schemas.Items[schemas.IntegrationOut])
 def list_integrations(provider: str | None = None, ctx: Ctx = Depends(org_ctx("integrations.read"))) -> dict:
     q = select(Integration).where(Integration.organization_id == ctx.org_id, Integration.deleted_at.is_(None))
     if provider:
@@ -53,7 +55,7 @@ class IntegrationUpdate(Body):
     values: dict[str, Any] | None = None
 
 
-@router.post("/integrations", status_code=201)
+@router.post("/integrations", response_model=schemas.IntegrationOut, status_code=201)
 def create_integration(body: IntegrationCreate, ctx: Ctx = Depends(org_ctx("integrations.manage"))) -> dict:
     p = service.provider_def(body.provider_key)
     name = body.name or p.name
@@ -67,12 +69,12 @@ def create_integration(body: IntegrationCreate, ctx: Ctx = Depends(org_ctx("inte
     return service.public_view(ctx.db, integration)
 
 
-@router.get("/integrations/{integration_id}")
+@router.get("/integrations/{integration_id}", response_model=schemas.IntegrationOut)
 def get_integration(integration_id: str, ctx: Ctx = Depends(org_ctx("integrations.read"))) -> dict:
     return service.public_view(ctx.db, owned(ctx.db, Integration, integration_id, ctx.org_id, "Integration"))
 
 
-@router.patch("/integrations/{integration_id}")
+@router.patch("/integrations/{integration_id}", response_model=schemas.IntegrationOut)
 def update_integration(integration_id: str, body: IntegrationUpdate, ctx: Ctx = Depends(org_ctx("integrations.manage"))) -> dict:
     integration = owned(ctx.db, Integration, integration_id, ctx.org_id, "Integration")
     service.update_integration(ctx.db, integration, body.name, body.values)
@@ -82,7 +84,7 @@ def update_integration(integration_id: str, body: IntegrationUpdate, ctx: Ctx = 
     return service.public_view(ctx.db, integration)
 
 
-@router.post("/integrations/{integration_id}/test")
+@router.post("/integrations/{integration_id}/test", response_model=schemas.IntegrationTested)
 def test_integration(integration_id: str, ctx: Ctx = Depends(org_ctx("integrations.manage"))) -> dict:
     integration = owned(ctx.db, Integration, integration_id, ctx.org_id, "Integration")
     result = service.test_integration(ctx.db, integration)
@@ -90,7 +92,7 @@ def test_integration(integration_id: str, ctx: Ctx = Depends(org_ctx("integratio
     return {"result": result, "integration": service.public_view(ctx.db, integration)}
 
 
-@router.post("/integrations/{integration_id}/revoke")
+@router.post("/integrations/{integration_id}/revoke", response_model=schemas.IntegrationOut)
 def revoke(integration_id: str, ctx: Ctx = Depends(org_ctx("integrations.manage"))) -> dict:
     integration = owned(ctx.db, Integration, integration_id, ctx.org_id, "Integration")
     service.revoke_integration(ctx.db, integration)
@@ -99,7 +101,7 @@ def revoke(integration_id: str, ctx: Ctx = Depends(org_ctx("integrations.manage"
     return service.public_view(ctx.db, integration)
 
 
-@router.delete("/integrations/{integration_id}")
+@router.delete("/integrations/{integration_id}", response_model=schemas.Ok)
 def delete_integration(integration_id: str, ctx: Ctx = Depends(org_ctx("integrations.manage"))) -> dict:
     integration = owned(ctx.db, Integration, integration_id, ctx.org_id, "Integration")
     service.revoke_integration(ctx.db, integration)
@@ -111,7 +113,7 @@ def delete_integration(integration_id: str, ctx: Ctx = Depends(org_ctx("integrat
     return {"ok": True}
 
 
-@router.post("/integrations/{integration_id}/oauth/start")
+@router.post("/integrations/{integration_id}/oauth/start", response_model=schemas.AuthorizationUrl)
 def oauth_start(integration_id: str, ctx: Ctx = Depends(org_ctx("integrations.manage"))) -> dict:
     integration = owned(ctx.db, Integration, integration_id, ctx.org_id, "Integration")
     p = service.provider_def(integration.provider_key)
@@ -142,7 +144,7 @@ def oauth_callback(state: str = Query("", max_length=200), code: str = Query("",
             return RedirectResponse(f"{front}/integrations?oauth=error", status_code=302)
 
 
-@router.get("/integrations/{integration_id}/mcp-tools")
+@router.get("/integrations/{integration_id}/mcp-tools", response_model=schemas.Items[schemas.McpToolOut])
 def mcp_tools(integration_id: str, ctx: Ctx = Depends(org_ctx("integrations.manage"))) -> dict:
     """Discover the tools of a connected MCP server (to allowlist individual tools on an agent)."""
     from app.ai.mcp import McpClient
@@ -157,7 +159,7 @@ def mcp_tools(integration_id: str, ctx: Ctx = Depends(org_ctx("integrations.mana
         raise AppError(exc.message, code=exc.code, status_code=502) from exc
 
 
-@router.get("/integrations-health")
+@router.get("/integrations-health", response_model=schemas.Items[schemas.IntegrationHealthItem])
 def health_summary(ctx: Ctx = Depends(org_ctx("integrations.read"))) -> dict:
     rows = ctx.db.scalars(select(Integration).where(Integration.organization_id == ctx.org_id, Integration.deleted_at.is_(None))).all()
     return {"items": [{"id": str(i.id), "name": i.name, "provider_key": i.provider_key, "status": i.status,

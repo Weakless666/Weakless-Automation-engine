@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import Field
 from sqlalchemy import select
 
+from app.api import schemas
+from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, owned, paginate, parse_uuid
 from app.config import get_settings
 from app.core.errors import AppError, ValidationFailed
@@ -22,11 +24,12 @@ from app.services.audit import audit
 from app.services.events import emit_app_event
 from app.services.executions import resume_execution
 
-public = APIRouter(tags=["inbound"])
-router = APIRouter(tags=["webhooks"])
+public = APIRouter(route_class=ApiRoute, tags=["inbound"])
+router = APIRouter(route_class=ApiRoute, tags=["webhooks"])
 
 
-@public.api_route("/hooks/{endpoint_key}", methods=["GET", "POST"])
+@public.post("/hooks/{endpoint_key}", response_model=schemas.HookResult, operation_id="receive_webhook")
+@public.get("/hooks/{endpoint_key}", response_model=schemas.HookResult, operation_id="receive_webhook_get")
 async def inbound(endpoint_key: str, request: Request):
     """Unique per-trigger URL. Authenticity is established by the endpoint's signature scheme."""
     declared = request.headers.get("content-length")
@@ -45,7 +48,8 @@ async def inbound(endpoint_key: str, request: Request):
     return JSONResponse(payload, status_code=status)
 
 
-@public.api_route("/hooks/resume/{execution_id}/{token}", methods=["GET", "POST"])
+@public.post("/hooks/resume/{execution_id}/{token}", response_model=schemas.StatusOut, status_code=202, operation_id="resume_execution_link")
+@public.get("/hooks/resume/{execution_id}/{token}", response_model=schemas.StatusOut, status_code=202, operation_id="resume_execution_link_get")
 async def resume_link(execution_id: str, token: str, request: Request):
     """Resume an execution paused on a Wait node. The unguessable per-execution token is the credential."""
     if not limiter.allow(f"resume-ip:{client_ip(request)}", 60):
@@ -85,13 +89,13 @@ def endpoint_view(e: WebhookEndpoint) -> dict:
             "is_active": e.is_active, "rate_limit_per_minute": e.rate_limit_per_minute, "last_received_at": iso(e.last_received_at)}
 
 
-@router.get("/webhooks")
+@router.get("/webhooks", response_model=schemas.Items[schemas.EndpointOut])
 def list_endpoints(ctx: Ctx = Depends(org_ctx("webhooks.read"))) -> dict:
     rows = ctx.db.scalars(select(WebhookEndpoint).where(WebhookEndpoint.organization_id == ctx.org_id).order_by(WebhookEndpoint.created_at.desc())).all()
     return {"items": [endpoint_view(e) for e in rows]}
 
 
-@router.post("/webhooks/{endpoint_id}/rotate-secret")
+@router.post("/webhooks/{endpoint_id}/rotate-secret", response_model=schemas.SecretRotated)
 def rotate_secret(endpoint_id: str, ctx: Ctx = Depends(org_ctx("webhooks.manage"))) -> dict:
     """Generate a new signing secret. It is returned exactly once."""
     ep = owned(ctx.db, WebhookEndpoint, endpoint_id, ctx.org_id, "Endpoint")
@@ -108,7 +112,7 @@ class SecretBody(Body):
     secret: str = Field(..., min_length=8, max_length=500)
 
 
-@router.put("/webhooks/{endpoint_id}/secret")
+@router.put("/webhooks/{endpoint_id}/secret", response_model=schemas.EndpointOut)
 def set_secret(endpoint_id: str, body: SecretBody, ctx: Ctx = Depends(org_ctx("webhooks.manage"))) -> dict:
     """Store a provider-issued signing secret (Stripe ``whsec_...``, Meta app secret, Slack signing secret)."""
     ep = owned(ctx.db, WebhookEndpoint, endpoint_id, ctx.org_id, "Endpoint")
@@ -118,7 +122,7 @@ def set_secret(endpoint_id: str, body: SecretBody, ctx: Ctx = Depends(org_ctx("w
     return endpoint_view(ep)
 
 
-@router.get("/webhooks/{endpoint_id}/verify-token")
+@router.get("/webhooks/{endpoint_id}/verify-token", response_model=schemas.VerifyToken)
 def verify_token(endpoint_id: str, ctx: Ctx = Depends(org_ctx("webhooks.manage"))) -> dict:
     """Verify token to enter in the Meta developer console when subscribing this URL."""
     ep = owned(ctx.db, WebhookEndpoint, endpoint_id, ctx.org_id, "Endpoint")
@@ -139,7 +143,7 @@ def event_view(e: WebhookEvent, full: bool = False) -> dict:
     return out
 
 
-@router.get("/events")
+@router.get("/events", response_model=schemas.Page[schemas.EventOut])
 def list_events(status: str | None = None, source: str | None = None, endpoint_id: str | None = None, paging: Paging = Depends(),
                 ctx: Ctx = Depends(org_ctx("webhooks.read"))) -> dict:
     q = select(WebhookEvent).where(WebhookEvent.organization_id == ctx.org_id)
@@ -152,12 +156,12 @@ def list_events(status: str | None = None, source: str | None = None, endpoint_i
     return paginate(ctx.db, q.order_by(WebhookEvent.received_at.desc()), paging, event_view)
 
 
-@router.get("/events/{event_id}")
+@router.get("/events/{event_id}", response_model=schemas.EventOut)
 def get_event(event_id: str, ctx: Ctx = Depends(org_ctx("webhooks.read"))) -> dict:
     return event_view(owned(ctx.db, WebhookEvent, event_id, ctx.org_id, "Event"), full=True)
 
 
-@router.post("/events/{event_id}/replay", status_code=202)
+@router.post("/events/{event_id}/replay", response_model=schemas.EventOut, status_code=202)
 def replay(event_id: str, ctx: Ctx = Depends(org_ctx("webhooks.manage"))) -> dict:
     event = owned(ctx.db, WebhookEvent, event_id, ctx.org_id, "Event")
     new = hooks.replay_event(ctx.db, event)
@@ -171,7 +175,7 @@ class EmitBody(Body):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
-@router.post("/events", status_code=202)
+@router.post("/events", response_model=schemas.EventOut, status_code=202)
 def emit(body: EmitBody, ctx: Ctx = Depends(org_ctx("workflows.execute"))) -> dict:
     """Emit a custom application event; active workflows with a matching Application Event trigger start."""
     if body.event_type.startswith("workflow."):

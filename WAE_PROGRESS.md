@@ -2,7 +2,7 @@
 
 Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 
-**TESTED** means automated tests exist and passed on the last run (83 backend tests on SQLite, 2026-11-12). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 24 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, analytics, billing and plans, audit, executions (retry, resume), notifications and staff invitations, two-factor sign-in, and that every main screen opens (72/72 over three repeats in Edge, 2026-11-12). Screens are not checked for visual design.
+**TESTED** means automated tests exist and passed on the last run (86 backend tests on SQLite, 2026-11-12, including checks that every API operation documents a typed response and the error envelope). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 24 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, analytics, billing and plans, audit, executions (retry, resume), notifications and staff invitations, two-factor sign-in, and that every main screen opens (72/72 over three repeats in Edge, 2026-11-12). Screens are not checked for visual design.
 
 | # | Module | Backend | Frontend | Notes |
 |---|---|---|---|---|
@@ -30,5 +30,4 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 - Vector / semantic knowledge search
 - Mailbox polling for the Email trigger; native database change listeners
 - SSO, passkeys
-- Typed response models in OpenAPI
 - Redis-backed shared rate limiting
