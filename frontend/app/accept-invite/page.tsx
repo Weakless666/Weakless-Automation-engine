@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, setCsrfToken } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { useFinishSignIn } from "@/lib/sign-in";
+import { MfaChallenge, MfaSetup } from "@/components/mfa";
 import { fmtDate, titleCase } from "@/lib/format";
 import { AuthCard, passwordProblem } from "@/components/auth-card";
 import { Button, ErrorState, Field, InlineError, Input, Notice, Spinner } from "@/components/ui";
@@ -12,8 +14,7 @@ import { Button, ErrorState, Field, InlineError, Input, Notice, Spinner } from "
 type Info = { email: string; full_name: string; organization_name: string | null; role: string | null; invited_by: string | null; needs_password: boolean; expires_at: string };
 
 function AcceptForm() {
-  const router = useRouter();
-  const qc = useQueryClient();
+  const finish = useFinishSignIn();
   const token = useSearchParams().get("token") ?? "";
   const info = useQuery({ queryKey: ["invitation", token], queryFn: () => api<Info>("/auth/invitations/inspect", { method: "POST", body: { token }, org: false }), enabled: !!token, retry: false });
   const [name, setName] = useState("");
@@ -22,7 +23,24 @@ function AcceptForm() {
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // After accepting, staff (and anyone who already uses it) still complete two-factor sign-in.
+  const [second, setSecond] = useState<{ kind: "code" | "setup"; token: string; email: string } | null>(null);
 
+  if (second?.kind === "setup") {
+    return (
+      <AuthCard title="Set up two-factor sign-in" description="Weakless team accounts can reach every client, so they need a second step at sign-in.">
+        <MfaSetup start={() => api("/auth/mfa/setup", { method: "POST", org: false, body: { mfa_token: second.token } })}
+          confirm={(code) => api("/auth/mfa/setup/confirm", { method: "POST", org: false, body: { mfa_token: second.token, code } })} onDone={finish} />
+      </AuthCard>
+    );
+  }
+  if (second?.kind === "code") {
+    return (
+      <AuthCard title="Two-factor sign-in" description="You joined. Enter the code from your authenticator app to continue.">
+        <MfaChallenge token={second.token} email={second.email} onDone={finish} onRestart={() => { window.location.href = "/login"; }} />
+      </AuthCard>
+    );
+  }
   if (!token) return <AuthCard title="Invitation link missing"><Notice tone="warning">Open the link from your invitation email.</Notice></AuthCard>;
   if (info.isLoading) return <AuthCard title="Opening invitation"><Spinner /></AuthCard>;
   if (info.error || !info.data) {
@@ -46,11 +64,14 @@ function AcceptForm() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api<{ csrf_token: string }>("/auth/invitations/accept", { method: "POST", org: false,
+      const res = await api<any>("/auth/invitations/accept", { method: "POST", org: false,
         body: { token, password, full_name: needs ? name || d.full_name : null } });
-      setCsrfToken(res.csrf_token);
-      qc.clear();
-      router.replace("/");
+      if (res.mfa_setup_required || res.mfa_required) {
+        setSecond({ kind: res.mfa_setup_required ? "setup" : "code", token: res.mfa_token, email: res.email });
+        setBusy(false);
+        return;
+      }
+      finish(res);
     } catch (err) {
       setError(err);
       setBusy(false);

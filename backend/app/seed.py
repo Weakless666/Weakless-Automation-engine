@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = {
     "ai.default": ({"provider": "anthropic", "model": "claude-opus-5-5"}, "Default AI provider and model for nodes that do not choose one"),
     "ai.model_pricing": ({}, "Overrides/additions to model prices: {model: {input, output}} in USD per million tokens"),
     "ai.anthropic_refusal_fallback": (True, "Send Anthropic's server-side refusal fallback parameter on models that support it"),
+    "security.staff_mfa_required": (None, "Weakless staff must use two-factor sign-in (staff without it set it up at their next sign-in)"),
 }
 
 
@@ -51,6 +52,8 @@ def seed_plans(db: Session) -> None:
 def seed_settings(db: Session) -> None:
     existing = {s.key for s in db.scalars(select(SystemSetting))}
     for key, (value, description) in DEFAULT_SETTINGS.items():
+        if key == "security.staff_mfa_required":
+            value = get_settings().staff_mfa_required  # initial value comes from WAE_STAFF_MFA_REQUIRED
         if key not in existing:
             db.add(SystemSetting(key=key, value=value, description=description))
     db.flush()

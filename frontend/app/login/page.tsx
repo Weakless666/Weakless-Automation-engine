@@ -2,16 +2,19 @@
 
 import Link from "next/link";
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
-import { api, setCsrfToken } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
+import { api } from "@/lib/api";
 import { AuthCard } from "@/components/auth-card";
+import { MfaChallenge, MfaSetup } from "@/components/mfa";
 import { Button, Field, InlineError, Input, Notice } from "@/components/ui";
+import { useFinishSignIn } from "@/lib/sign-in";
+
+type Step = { kind: "password" } | { kind: "code"; token: string; email: string } | { kind: "setup"; token: string; email: string };
 
 function LoginForm() {
-  const router = useRouter();
-  const qc = useQueryClient();
   const params = useSearchParams();
+  const finish = useFinishSignIn();
+  const [step, setStep] = useState<Step>({ kind: "password" });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -22,16 +25,38 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api<{ csrf_token: string }>("/auth/login", { method: "POST", body: { email, password }, org: false });
-      setCsrfToken(res.csrf_token);
-      qc.clear();
-      router.replace("/");
+      const res = await api<any>("/auth/login", { method: "POST", body: { email, password }, org: false });
+      if (res.mfa_required) setStep({ kind: "code", token: res.mfa_token, email: res.email });
+      else if (res.mfa_setup_required) setStep({ kind: "setup", token: res.mfa_token, email: res.email });
+      else return finish(res);
+      setPassword("");
     } catch (err) {
       setError(err);
-      setBusy(false);
     }
+    setBusy(false);
   }
 
+  const restart = () => { setStep({ kind: "password" }); setError(null); };
+
+  if (step.kind === "code") {
+    return (
+      <AuthCard title="Two-factor sign-in" description="Enter the code from your authenticator app.">
+        <MfaChallenge token={step.token} email={step.email} onDone={finish} onRestart={restart} />
+      </AuthCard>
+    );
+  }
+  if (step.kind === "setup") {
+    return (
+      <AuthCard title="Set up two-factor sign-in" description="Weakless team accounts can reach every client, so they need a second step at sign-in.">
+        <MfaSetup
+          start={() => api("/auth/mfa/setup", { method: "POST", org: false, body: { mfa_token: step.token } })}
+          confirm={(code) => api("/auth/mfa/setup/confirm", { method: "POST", org: false, body: { mfa_token: step.token, code } })}
+          onDone={finish}
+        />
+        <button type="button" onClick={restart} className="mt-4 block w-full text-center text-xs text-muted hover:text-fg">Start over</button>
+      </AuthCard>
+    );
+  }
   return (
     <AuthCard title="Sign in" description="Use the account your Weakless administrator created for you.">
       <form onSubmit={submit} className="space-y-4" noValidate>

@@ -31,8 +31,8 @@ backend/
     templates/      template library, industry packages, install/update service
     models.py       complete schema (50 tables)
     cli.py          operational commands
-  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links)
-  tests/            70 tests: engine, security, accounts, platform/e2e, operations
+  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor)
+  tests/            83 tests: engine, security, accounts, two-factor, platform/e2e, operations
 frontend/           Next.js application
 deploy/             PostgreSQL role bootstrap, backup script
 docker-compose.yml  single-host deployment
@@ -82,20 +82,21 @@ Open http://localhost:3000 and sign in with the bootstrap admin. The frontend pr
 ### 3. Tests
 
 ```bash
-cd backend && pytest -q          # 70 tests, SQLite, no network access needed
+cd backend && pytest -q          # 83 tests, SQLite, no network access needed
 cd frontend && npm run typecheck && npm run build
 cd frontend && npm run e2e       # browser tests of the workflow builder (below)
 ```
 
 ### 4. Browser tests
 
-`npm run e2e` (in `frontend/`) runs 22 Playwright tests that use the app like a person would:
+`npm run e2e` (in `frontend/`) runs 24 Playwright tests that use the app like a person would:
 - **Builder:** create, add and drag-connect steps, configure, save, reload, test-run, publish, activate; validation; duplicate/delete; switch outputs; concurrent edits.
 - **Accounts:** invite a member and accept as them in a separate browser; staff reset link; forgot password; generic sign-in error.
 - **Templates:** preview, install, configure; install an industry package.
 - **Agents:** create, configure, add a scoped tool and require approval; the honest error without an AI key; knowledge base add and search.
 - **Platform:** an integration is tested, never shows its secret, and is revoked; a client member sees only what their role allows; every main screen opens without an error.
 - **Insights:** analytics from real runs and the automation filter; creating and applying plans, scheduled downgrades, client upgrade requests that never charge; audit filters.
+- **Two-factor:** turn it on with a real computed code, sign in with a code and a recovery code, admin reset; required set-up at sign-in.
 - **Operations:** filter executions, read the failing step and retry; resume a waiting run; notifications inbox, preferences and channels; inviting a staff member; the platform settings never show secrets. It starts its own throwaway API on port 8100 (fresh `backend/e2e.db`, fixed test-only secrets, its own admin) and a production build of the web app on port 3100, so it never touches your development data and can run while the dev servers are up.
 
 - **Windows:** uses the installed Microsoft Edge; nothing to download. The backend virtual environment must exist (`backend/.venv`).
@@ -147,6 +148,7 @@ All backend settings use the `WAE_` prefix.
 | `WAE_COOKIE_SECURE` | prod | `false` | `true` behind HTTPS (Secure cookie + HSTS) |
 | `WAE_SESSION_HOURS` | no | `12` | Session lifetime |
 | `WAE_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | first run | - | Creates the first Super Admin when none exists |
+| `WAE_STAFF_MFA_REQUIRED` | no | `true` | Initial value of the platform setting that requires two-factor sign-in for Weakless staff (changeable under Settings -> Platform) |
 | `WAE_EMBEDDED_WORKER` | no | `true` | Run the worker inside the API process. Set `false` when running dedicated workers. |
 | `WAE_WORKER_POLL_SECONDS` | no | `1.0` | Idle polling interval |
 | `WAE_JOB_VISIBILITY_TIMEOUT_SECONDS` | no | `300` | After this, a job held by a dead worker is recovered |
@@ -195,7 +197,7 @@ Health checks: `GET /api/v1/health` (liveness), `GET /api/v1/health/ready` (data
 - [ ] `alembic upgrade head` succeeded, including migration `0002` (Row Level Security) - **run the cross-tenant checks in WAE_SECURITY.md against PostgreSQL before onboarding a second client**
 - [ ] HTTPS in front of the web service; `WAE_COOKIE_SECURE=true`; public URLs set
 - [ ] `WAE_EMBEDDED_WORKER=false` on the API and at least one dedicated worker running
-- [ ] Bootstrap admin created, then the bootstrap variables removed and the password changed
+- [ ] Bootstrap admin created, then the bootstrap variables removed and the password changed; two-factor sign-in set up (required for staff by default)
 - [ ] Outbound egress filtering in place (defence in depth for SSRF); `WAE_ALLOW_PRIVATE_NETWORK` left `false` unless required
 - [ ] A gateway or load-balancer rate limit if more than one API instance runs (the built-in limiter is per process)
 - [ ] Backups running and a restore rehearsed; `./backups` shipped off-host

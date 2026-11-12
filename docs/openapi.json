@@ -223,6 +223,313 @@
         }
       }
     },
+    "/api/v1/auth/mfa/verify": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mfa Verify",
+        "description": "Second step of sign-in: an authenticator code or a recovery code.",
+        "operationId": "mfa_verify_api_v1_auth_mfa_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaCodeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mfa Verify Api V1 Auth Mfa Verify Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa/setup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mfa Setup During Login",
+        "description": "Required set-up at sign-in (staff without two-factor sign-in yet).",
+        "operationId": "mfa_setup_during_login_api_v1_auth_mfa_setup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaTokenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mfa Setup During Login Api V1 Auth Mfa Setup Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa/setup/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mfa Setup Confirm During Login",
+        "operationId": "mfa_setup_confirm_during_login_api_v1_auth_mfa_setup_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaCodeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mfa Setup Confirm During Login Api V1 Auth Mfa Setup Confirm Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mfa Status",
+        "operationId": "mfa_status_api_v1_auth_mfa_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mfa Status Api V1 Auth Mfa Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa/enroll": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mfa Enroll",
+        "operationId": "mfa_enroll_api_v1_auth_mfa_enroll_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mfa Enroll Api V1 Auth Mfa Enroll Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa/enroll/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mfa Enroll Confirm",
+        "operationId": "mfa_enroll_confirm_api_v1_auth_mfa_enroll_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mfa Enroll Confirm Api V1 Auth Mfa Enroll Confirm Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa/recovery-codes": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mfa New Recovery Codes",
+        "description": "Replace all recovery codes (the old ones stop working). Requires a current code.",
+        "operationId": "mfa_new_recovery_codes_api_v1_auth_mfa_recovery_codes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mfa New Recovery Codes Api V1 Auth Mfa Recovery Codes Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/mfa/disable": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Mfa Disable",
+        "operationId": "mfa_disable_api_v1_auth_mfa_disable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisableMfaBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mfa Disable Api V1 Auth Mfa Disable Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/logout": {
       "post": {
         "tags": [
@@ -604,6 +911,51 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Resend Staff Invitation Api V1 Users  User Id  Invitation Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/mfa-reset": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Reset User Mfa",
+        "description": "For a lost phone: switch off someone's two-factor sign-in and sign them out everywhere.\nStaff who are required to use it set it up again at their next sign-in.",
+        "operationId": "reset_user_mfa_api_v1_users__user_id__mfa_reset_post",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Reset User Mfa Api V1 Users  User Id  Mfa Reset Post"
                 }
               }
             }
@@ -4884,13 +5236,13 @@
       }
     },
     "/api/v1/hooks/{endpoint_key}": {
-      "get": {
+      "post": {
         "tags": [
           "inbound"
         ],
         "summary": "Inbound",
         "description": "Unique per-trigger URL. Authenticity is established by the endpoint's signature scheme.",
-        "operationId": "inbound_api_v1_hooks__endpoint_key__get",
+        "operationId": "inbound_api_v1_hooks__endpoint_key__post",
         "parameters": [
           {
             "name": "endpoint_key",
@@ -4923,13 +5275,13 @@
           }
         }
       },
-      "post": {
+      "get": {
         "tags": [
           "inbound"
         ],
         "summary": "Inbound",
         "description": "Unique per-trigger URL. Authenticity is established by the endpoint's signature scheme.",
-        "operationId": "inbound_api_v1_hooks__endpoint_key__get",
+        "operationId": "inbound_api_v1_hooks__endpoint_key__post",
         "parameters": [
           {
             "name": "endpoint_key",
@@ -4964,13 +5316,13 @@
       }
     },
     "/api/v1/hooks/resume/{execution_id}/{token}": {
-      "get": {
+      "post": {
         "tags": [
           "inbound"
         ],
         "summary": "Resume Link",
         "description": "Resume an execution paused on a Wait node. The unguessable per-execution token is the credential.",
-        "operationId": "resume_link_api_v1_hooks_resume__execution_id___token__get",
+        "operationId": "resume_link_api_v1_hooks_resume__execution_id___token__post",
         "parameters": [
           {
             "name": "execution_id",
@@ -5012,13 +5364,13 @@
           }
         }
       },
-      "post": {
+      "get": {
         "tags": [
           "inbound"
         ],
         "summary": "Resume Link",
         "description": "Resume an execution paused on a Wait node. The unguessable per-execution token is the credential.",
-        "operationId": "resume_link_api_v1_hooks_resume__execution_id___token__get",
+        "operationId": "resume_link_api_v1_hooks_resume__execution_id___token__post",
         "parameters": [
           {
             "name": "execution_id",
@@ -7545,6 +7897,22 @@
         "type": "object",
         "title": "ClientBody"
       },
+      "CodeBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "CodeBody"
+      },
       "DecisionBody": {
         "properties": {
           "approved": {
@@ -7564,6 +7932,29 @@
           "approved"
         ],
         "title": "DecisionBody"
+      },
+      "DisableMfaBody": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Password"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "password",
+          "code"
+        ],
+        "title": "DisableMfaBody"
       },
       "DocBody": {
         "properties": {
@@ -7921,6 +8312,45 @@
         "additionalProperties": false,
         "type": "object",
         "title": "MemberUpdate"
+      },
+      "MfaCodeBody": {
+        "properties": {
+          "mfa_token": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 20,
+            "title": "Mfa Token"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mfa_token",
+          "code"
+        ],
+        "title": "MfaCodeBody"
+      },
+      "MfaTokenBody": {
+        "properties": {
+          "mfa_token": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 20,
+            "title": "Mfa Token"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mfa_token"
+        ],
+        "title": "MfaTokenBody"
       },
       "OrgCreate": {
         "properties": {

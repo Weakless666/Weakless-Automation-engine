@@ -21,7 +21,7 @@ from app.deps import Ctx, client_ip, platform_ctx, user_ctx
 from app.models import (
     PLATFORM_ROLES, LoginHistory, Organization, OrganizationMember, Permission, Role, RolePermission, SystemSetting, User, UserSession,
 )
-from app.services import accounts
+from app.services import accounts, mfa
 from app.services.audit import audit
 from app.services.notifications import notify
 
@@ -38,7 +38,8 @@ class LoginBody(Body):
 
 def user_view(u: User) -> dict:
     return {"id": str(u.id), "email": u.email, "full_name": u.full_name, "platform_role": u.platform_role, "is_active": u.is_active,
-            "invitation_pending": not accounts.has_password(u), "last_login_at": iso(u.last_login_at), "created_at": iso(u.created_at)}
+            "invitation_pending": not accounts.has_password(u), "mfa_enabled": mfa.enabled(u),
+            "last_login_at": iso(u.last_login_at), "created_at": iso(u.created_at)}
 
 
 @router.post("/auth/login")
@@ -77,7 +78,21 @@ def login(body: LoginBody, request: Request, response: Response, db: Session = D
         fail("bad_password")
     if not user.is_active:
         fail("disabled")
-    return _start_session(db, user, ip, ua, response)
+    return _complete_login(db, user, ip, ua, response)
+
+
+def _complete_login(db: Session, user: User, ip: str | None, ua: str, response: Response, reason: str | None = None) -> dict:
+    """After the password (or an invitation) is verified: a session, or the two-factor step first.
+
+    The failed-attempt counter is deliberately *not* reset here, so knowing the password does not
+    buy unlimited guesses at the code."""
+    if mfa.enabled(user):
+        db.commit()
+        return {"mfa_required": True, "mfa_token": mfa.challenge_token(user, "verify"), "email": user.email}
+    if mfa.required_for(db, user):
+        db.commit()
+        return {"mfa_setup_required": True, "mfa_token": mfa.challenge_token(user, "setup"), "email": user.email}
+    return _start_session(db, user, ip, ua, response, reason=reason)
 
 
 def _start_session(db: Session, user: User, ip: str | None, ua: str, response: Response, reason: str | None = None) -> dict:
@@ -166,7 +181,136 @@ def invitation_accept(body: AcceptBody, request: Request, response: Response, db
     user = accounts.accept_invitation(db, body.token, body.password, body.full_name)
     audit(db, "auth.invitation_accepted", organization_id=org_id, resource_type="user", resource_id=user.id, actor_email=user.email,
           meta={"ip": client_ip(request)})
-    return _start_session(db, user, client_ip(request), request.headers.get("user-agent", "")[:400], response, reason="invitation")
+    return _complete_login(db, user, client_ip(request), request.headers.get("user-agent", "")[:400], response, reason="invitation")
+
+
+# ----------------------------------------------------------------------------- two-factor sign-in
+
+
+class MfaTokenBody(Body):
+    mfa_token: str = Field(..., min_length=20, max_length=2000)
+
+
+class MfaCodeBody(MfaTokenBody):
+    code: str = Field(..., min_length=1, max_length=40)
+
+
+def _mfa_failure(db: Session, user: User, request: Request) -> None:
+    user.failed_login_count += 1
+    db.add(LoginHistory(user_id=user.id, email=user.email, success=False, reason="bad_mfa_code", ip=client_ip(request),
+                        user_agent=request.headers.get("user-agent", "")[:400]))
+    if user.failed_login_count >= MAX_FAILED_LOGINS:
+        user.locked_until = utcnow() + timedelta(minutes=LOCK_MINUTES)
+        user.failed_login_count = 0
+        audit(db, "auth.account_locked", resource_type="user", resource_id=user.id, actor_email=user.email, meta={"ip": client_ip(request), "step": "mfa"})
+        notify(db, "security.event", None, title="Account temporarily locked", body=f"{user.email} was locked after repeated wrong authentication codes.",
+               severity="warning", data={"email": user.email})
+    db.commit()
+    raise Unauthorized("That code is not valid. Use the newest code from your authenticator app.", code="invalid_mfa_code")
+
+
+@router.post("/auth/mfa/verify")
+def mfa_verify(body: MfaCodeBody, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    """Second step of sign-in: an authenticator code or a recovery code."""
+    _public_limit(request, "mfa")
+    user = mfa.user_from_challenge(db, body.mfa_token, "verify")
+    if user.locked_until and user.locked_until > utcnow():
+        raise Unauthorized("Too many attempts. Try again in a few minutes.", code="locked")
+    method = mfa.check_code(db, user, body.code)
+    if not method:
+        _mfa_failure(db, user, request)
+    if method == "recovery":
+        left = len(user.mfa_recovery_hashes or [])
+        audit(db, "auth.mfa_recovery_code_used", resource_type="user", resource_id=user.id, actor_email=user.email, meta={"remaining": left})
+        notify(db, "security.event", None, title="A recovery code was used to sign in", severity="warning",
+               body=f"{left} recovery codes remain. If this was not you, change your password and reset two-factor sign-in.", user_ids=[user.id])
+    return _start_session(db, user, client_ip(request), request.headers.get("user-agent", "")[:400], response, reason=f"mfa_{method}")
+
+
+@router.post("/auth/mfa/setup")
+def mfa_setup_during_login(body: MfaTokenBody, request: Request, db: Session = Depends(get_db)) -> dict:
+    """Required set-up at sign-in (staff without two-factor sign-in yet)."""
+    _public_limit(request, "mfa")
+    user = mfa.user_from_challenge(db, body.mfa_token, "setup")
+    if mfa.enabled(user):
+        raise Conflict("Two-factor sign-in is already set up. Sign in again.")
+    started = mfa.begin_enrollment(db, user)
+    db.commit()
+    return started
+
+
+@router.post("/auth/mfa/setup/confirm")
+def mfa_setup_confirm_during_login(body: MfaCodeBody, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    _public_limit(request, "mfa")
+    user = mfa.user_from_challenge(db, body.mfa_token, "setup")
+    codes = mfa.confirm_enrollment(db, user, body.code)
+    audit(db, "auth.mfa_enabled", resource_type="user", resource_id=user.id, actor_email=user.email, meta={"during": "sign-in"})
+    result = _start_session(db, user, client_ip(request), request.headers.get("user-agent", "")[:400], response, reason="mfa_setup")
+    return {**result, "recovery_codes": codes}
+
+
+@router.get("/auth/mfa")
+def mfa_status(ctx: Ctx = Depends(user_ctx)) -> dict:
+    return mfa.status(ctx.db, ctx.user)
+
+
+@router.post("/auth/mfa/enroll")
+def mfa_enroll(ctx: Ctx = Depends(user_ctx)) -> dict:
+    if mfa.enabled(ctx.user):
+        raise Conflict("Two-factor sign-in is already on")
+    started = mfa.begin_enrollment(ctx.db, ctx.user)
+    ctx.db.commit()
+    return started
+
+
+class CodeBody(Body):
+    code: str = Field(..., min_length=1, max_length=40)
+
+
+@router.post("/auth/mfa/enroll/confirm")
+def mfa_enroll_confirm(body: CodeBody, ctx: Ctx = Depends(user_ctx)) -> dict:
+    codes = mfa.confirm_enrollment(ctx.db, ctx.user, body.code)
+    audit(ctx.db, "auth.mfa_enabled", ctx=ctx, resource_type="user", resource_id=ctx.user.id)
+    ctx.db.commit()
+    return {"recovery_codes": codes, "status": mfa.status(ctx.db, ctx.user)}
+
+
+def _verify_current_code(ctx: Ctx, code: str) -> None:
+    if not mfa.check_code(ctx.db, ctx.user, code):
+        ctx.db.commit()
+        raise Forbidden("That code is not valid", code="invalid_mfa_code")
+
+
+@router.post("/auth/mfa/recovery-codes")
+def mfa_new_recovery_codes(body: CodeBody, ctx: Ctx = Depends(user_ctx)) -> dict:
+    """Replace all recovery codes (the old ones stop working). Requires a current code."""
+    if not mfa.enabled(ctx.user):
+        raise Conflict("Two-factor sign-in is not on")
+    _verify_current_code(ctx, body.code)
+    codes = mfa.regenerate_recovery_codes(ctx.db, ctx.user)
+    audit(ctx.db, "auth.mfa_recovery_codes_regenerated", ctx=ctx, resource_type="user", resource_id=ctx.user.id)
+    ctx.db.commit()
+    return {"recovery_codes": codes}
+
+
+class DisableMfaBody(Body):
+    password: str = Field(..., min_length=1, max_length=200)
+    code: str = Field(..., min_length=1, max_length=40)
+
+
+@router.post("/auth/mfa/disable")
+def mfa_disable(body: DisableMfaBody, ctx: Ctx = Depends(user_ctx)) -> dict:
+    if not mfa.enabled(ctx.user):
+        raise Conflict("Two-factor sign-in is not on")
+    if mfa.required_for(ctx.db, ctx.user):
+        raise Forbidden("Two-factor sign-in is required for Weakless staff", code="mfa_required")
+    if not verify_password(body.password, ctx.user.password_hash):
+        raise Forbidden("Password is incorrect", code="invalid_credentials")
+    _verify_current_code(ctx, body.code)
+    mfa.disable(ctx.db, ctx.user)
+    audit(ctx.db, "auth.mfa_disabled", ctx=ctx, resource_type="user", resource_id=ctx.user.id)
+    ctx.db.commit()
+    return mfa.status(ctx.db, ctx.user)
 
 
 @router.post("/auth/logout")
@@ -191,7 +335,7 @@ def me(ctx: Ctx = Depends(user_ctx)) -> dict:
         org_rows = [{"id": str(o.id), "name": o.name, "slug": o.slug, "status": o.status, "mode": o.mode, "role": role,
                      "permissions": sorted(rbac.role_permissions(db, role))} for o, role in rows]
     return {"user": user_view(ctx.user), "is_staff": ctx.is_staff, "platform_permissions": sorted(ctx.permissions) if ctx.is_staff else [],
-            "organizations": org_rows, "csrf_token": ctx.session.csrf_token}
+            "organizations": org_rows, "csrf_token": ctx.session.csrf_token, "mfa": mfa.status(db, ctx.user)}
 
 
 class PasswordBody(Body):
@@ -321,6 +465,28 @@ def resend_staff_invitation(user_id: str, ctx: Ctx = Depends(platform_ctx("platf
     return invitation.view()
 
 
+@router.post("/users/{user_id}/mfa-reset")
+def reset_user_mfa(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
+    """For a lost phone: switch off someone's two-factor sign-in and sign them out everywhere.
+    Staff who are required to use it set it up again at their next sign-in."""
+    u = ctx.db.get(User, parse_uuid(user_id, "User"))
+    if not u or u.deleted_at:
+        raise NotFound("User not found")
+    _guard_role(ctx, None, u)
+    if u.id == ctx.user.id:
+        raise AppError("Use your own security settings to change your two-factor sign-in", code="self_modification", status_code=409)
+    if not mfa.enabled(u):
+        raise Conflict("This person does not use two-factor sign-in")
+    mfa.disable(ctx.db, u)
+    for s in ctx.db.scalars(select(UserSession).where(UserSession.user_id == u.id, UserSession.revoked_at.is_(None))):
+        s.revoked_at = utcnow()
+    audit(ctx.db, "user.mfa_reset", ctx=ctx, resource_type="user", resource_id=u.id, meta={"email": u.email})
+    notify(ctx.db, "security.event", None, title="Your two-factor sign-in was reset", severity="warning",
+           body=f"{ctx.user.email} reset it. If you did not ask for this, contact your administrator.", user_ids=[u.id])
+    ctx.db.commit()
+    return user_view(u)
+
+
 @router.post("/users/{user_id}/reset-link")
 def issue_reset_link(user_id: str, ctx: Ctx = Depends(platform_ctx("platform.users.manage"))) -> dict:
     """Staff-issued password reset link for any account, for when platform email is not configured
@@ -442,7 +608,8 @@ class SettingBody(Body):
     value: object
 
 
-EDITABLE_SETTINGS = {"billing.default_plan": str, "ai.default": dict, "ai.model_pricing": dict, "ai.anthropic_refusal_fallback": bool}
+EDITABLE_SETTINGS = {"billing.default_plan": str, "ai.default": dict, "ai.model_pricing": dict, "ai.anthropic_refusal_fallback": bool,
+                     "security.staff_mfa_required": bool}
 
 
 @router.put("/settings/{key}")

@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 300
     auth_rate_limit_per_minute: int = 20
 
+    staff_mfa_required: bool = True  # initial value of the security.staff_mfa_required platform setting
     bootstrap_admin_email: str = ""
     bootstrap_admin_password: str = ""
 

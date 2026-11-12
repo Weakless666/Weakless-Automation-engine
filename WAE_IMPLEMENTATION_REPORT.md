@@ -93,7 +93,7 @@ Relative to the brief:
 - **Database event trigger** - webhook-based only; no native listeners.
 - **Knowledge retrieval** - keyword (BM25) only; no embeddings.
 - **Upload File** - text content only; no binary uploads.
-- **Authentication** - no MFA or SSO. (Password reset and invitations were added on 2026-11-12; their emails are untested against a real SMTP server.)
+- **Authentication** - no SSO or passkeys. (Two-factor sign-in with TOTP was added on 2026-11-12, required for staff by default.) (Password reset and invitations were added on 2026-11-12; their emails are untested against a real SMTP server.)
 - **API** - response schemas are not typed in OpenAPI.
 - **Testing** - 22 browser tests cover the main user journeys on every screen (added 2026-11-12); not covered: sending real notifications, OAuth flows, Stripe checkout, load.
 - **Rate limiting** - per process, not shared across instances.

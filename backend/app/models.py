@@ -84,6 +84,12 @@ class User(Base, Timestamps):
     locked_until: Mapped[datetime | None] = ts()
     last_login_at: Mapped[datetime | None] = ts()
     deleted_at: Mapped[datetime | None] = ts()
+    # Two-factor sign-in (TOTP). Secrets are vault envelopes bound to the user; recovery codes are SHA-256 hashes.
+    mfa_secret_envelope: Mapped[str | None] = mapped_column(Text)
+    mfa_pending_envelope: Mapped[str | None] = mapped_column(Text)  # enrollment started, not confirmed yet
+    mfa_enabled_at: Mapped[datetime | None] = ts()
+    mfa_last_step: Mapped[int | None] = mapped_column(BigInteger)  # last accepted time step: a code works once
+    mfa_recovery_hashes: Mapped[list | None] = mapped_column(JSONType)
 
 
 class UserSession(Base, Timestamps):

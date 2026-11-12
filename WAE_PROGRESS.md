@@ -2,7 +2,7 @@
 
 Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 
-**TESTED** means automated tests exist and passed on the last run (70 backend tests on SQLite, 2026-11-12). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 22 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, analytics, billing and plans, audit, executions (retry, resume), notifications and staff invitations, and that every main screen opens (66/66 over three repeats in Edge, 2026-11-12). Screens are not checked for visual design.
+**TESTED** means automated tests exist and passed on the last run (83 backend tests on SQLite, 2026-11-12). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 24 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, analytics, billing and plans, audit, executions (retry, resume), notifications and staff invitations, two-factor sign-in, and that every main screen opens (72/72 over three repeats in Edge, 2026-11-12). Screens are not checked for visual design.
 
 | # | Module | Backend | Frontend | Notes |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 | 11 | Analytics & Monitoring | TESTED | TESTED (browser) | Sentry integration is wired but untested |
 | 12 | Billing & Usage | TESTED (manual provider) / IMPLEMENTED (Stripe) | TESTED (browser) | Quotas, alerts, plan changes, period roll-over tested. Stripe Checkout never called; Stripe webhook signature and idempotency tested |
 | 13 | Notifications | TESTED | TESTED (browser) | In-app, preferences, webhook/Slack channel delivery tested with mocks; SMTP, Discord and Telegram channels untested |
-| 14 | Admin Security & Audit | TESTED | TESTED (browser) | Password reset and invitations added 2026-11-12 (tested; UI checked in the running app). Gaps: MFA, SSO |
+| 14 | Admin Security & Audit | TESTED | TESTED (browser) | Password reset, invitations and two-factor sign-in (TOTP, required for staff) added 2026-11-12, tested in API and browser. Gaps: SSO, passkeys |
 | - | Database migrations | TESTED on SQLite / BLOCKED on PostgreSQL | n/a | No PostgreSQL available locally |
 | - | Docker deployment | BLOCKED | BLOCKED | Written; Docker is not installed in the development environment |
 | - | CI | IMPLEMENTED | IMPLEMENTED | Runs on every push to GitHub (backend, PostgreSQL migrations, frontend build, browser tests). Results are visible only on github.com; not yet confirmed here |
@@ -29,6 +29,6 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 - WebSocket live updates (polling is used)
 - Vector / semantic knowledge search
 - Mailbox polling for the Email trigger; native database change listeners
-- MFA, SSO
+- SSO, passkeys
 - Typed response models in OpenAPI
 - Redis-backed shared rate limiting

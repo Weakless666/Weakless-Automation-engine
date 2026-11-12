@@ -18,7 +18,15 @@ What is implemented, where, and how it is verified. "Tested" means an automated 
 
 Residual risk: when platform email is not configured, admins receive the invitation link to pass on. Whoever holds a link for an account that has no password yet can choose that password. The link is shown once and expires in 7 days; configure SMTP so links go straight to the invited person.
 
-Not implemented: multi-factor authentication, SSO/OIDC login.
+| Two-factor sign-in (TOTP) | RFC 6238, 6 digits, 30 s, one step of clock drift. Secret is a vault envelope bound to the user. A code is accepted once (last used step is stored). 10 single-use recovery codes, stored as SHA-256 hashes. Between password and code the browser holds a 5-minute signed challenge token, not a session; it is bound to the password hash, so a password change voids it | Tested |
+| Staff requirement | `security.staff_mfa_required` (default on, initial value from `WAE_STAFF_MFA_REQUIRED`). Staff without it are walked through setup at sign-in, including right after accepting an invitation; staff under the requirement cannot turn it off. Client users can opt in | Tested |
+| Code brute force | Wrong codes count towards the same 8-attempt lockout as wrong passwords; a correct password does not reset the counter while the code is still outstanding | Tested |
+| Lost phone | Staff with `platform.users.manage` can reset someone's two-factor sign-in (Super Admin rules apply; not their own). It signs the person out everywhere, notifies them and is audited. Using a recovery code also notifies the account holder | Tested |
+| Password reset | Does not bypass two-factor sign-in | Tested |
+
+Residual risk: required set-up happens at the first sign-in after the requirement applies, so whoever first signs in with a staff member's password enrolls the authenticator (trust on first use). Invite staff by invitation so they choose their own password, and reset two-factor sign-in if an account may have been used by someone else.
+
+Not implemented: SSO/OIDC login, WebAuthn / passkeys.
 
 ## Authorization
 - **RBAC**: nine roles, 35 permissions, checked by a dependency on every endpoint. Tested per role, including that clients cannot reach platform administration.
@@ -83,7 +91,7 @@ Sensitive operations write `audit_logs` in the same transaction as the change: a
 
 ## Known gaps
 - Row Level Security unverified on PostgreSQL (above).
-- No MFA or SSO.
+- No SSO or passkeys.
 - Rate limiting is not shared across API instances.
 - No automated dependency or container scanning is configured.
 - The frontend has no Content-Security-Policy header (the API has one).

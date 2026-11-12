@@ -17,7 +17,7 @@ Source of truth: `backend/app/models.py` (50 tables). Migrations: `backend/alemb
 ### Identity and access
 | Table | Purpose | Notable constraints |
 |---|---|---|
-| `users` | Accounts. `platform_role` is set for Weakless staff, NULL for client users. | unique `email`; check on `platform_role` |
+| `users` | Accounts. `platform_role` is set for Weakless staff, NULL for client users. Two-factor columns: encrypted TOTP secret (and a pending one during set-up), enabled time, last accepted step, recovery code hashes | unique `email`; check on `platform_role` |
 | `user_sessions` | Server-side sessions (revocable), per-session CSRF token | index `user_id` |
 | `login_history` | Every sign-in attempt | index `email`, `created_at` |
 | `user_tokens` | Password reset and invitation links (SHA-256 of the token only), single use, with expiry | unique `token_hash`; check on `purpose`; index (user, purpose) |
@@ -107,5 +107,6 @@ The application sets both settings at the start of every transaction (`app/db.py
 | `0001` | Complete schema, generated from the models and hand-adjusted so the two circular foreign keys (`workflows.current_version_id`, `automation_templates.current_version_id`) are added after both tables exist |
 | `0002` | Row Level Security (PostgreSQL only) |
 | `0003` | `user_tokens` for password reset and invitations |
+| `0004` | Two-factor sign-in columns on `users` |
 
 Verified locally on SQLite: upgrade, `alembic check` (no drift), downgrade to base, upgrade again.

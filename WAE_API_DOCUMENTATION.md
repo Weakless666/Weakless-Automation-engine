@@ -3,7 +3,7 @@
 REST, JSON, versioned under `/api/v1`. The complete machine-readable reference is generated from the code:
 
 - live: `GET /api/openapi.json` and interactive docs at `/api/docs`
-- committed snapshot: [docs/openapi.json](docs/openapi.json) (118 paths, 149 operations) - regenerate with `python -m app.cli export-openapi ../docs/openapi.json`
+- committed snapshot: [docs/openapi.json](docs/openapi.json) (127 paths, 158 operations) - regenerate with `python -m app.cli export-openapi ../docs/openapi.json`
 
 Request bodies are fully described in OpenAPI. Response bodies are documented as generic objects: typed response models are not declared yet.
 
@@ -44,11 +44,23 @@ Common codes: `unauthorized` 401, `forbidden` / `csrf_failed` 403, `not_found` 4
 
 Invalid, used or expired links return `400` with code `invalid_token`.
 
+**Two-factor sign-in.** When it applies, `/auth/login` and `/auth/invitations/accept` return `{mfa_required: true, mfa_token, email}` or `{mfa_setup_required: true, mfa_token, email}` instead of a session. `mfa_token` is valid for 5 minutes.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/auth/mfa/verify` | **Public.** `{mfa_token, code}`; `code` is a 6-digit code or a recovery code. Starts a session |
+| POST | `/auth/mfa/setup`, `/auth/mfa/setup/confirm` | **Public.** Required set-up at sign-in: `{mfa_token}` returns `{secret, otpauth_url}`; confirm with `{mfa_token, code}` returns a session plus `recovery_codes` |
+| GET | `/auth/mfa` | Own status: enabled, required, recovery codes left |
+| POST | `/auth/mfa/enroll`, `/auth/mfa/enroll/confirm` | Turn it on while signed in |
+| POST | `/auth/mfa/recovery-codes` | `{code}`: replace all recovery codes |
+| POST | `/auth/mfa/disable` | `{password, code}`; refused for staff while required |
+
 ### Platform administration (staff)
 | Method | Path | Permission |
 |---|---|---|
 | GET, POST, PATCH | `/users`, `/users/{id}` | `platform.users.manage`. POST without `password` sends an invitation |
 | POST | `/users/{id}/invitation`, `/users/{id}/reset-link` | `platform.users.manage`. Return `{url, expires_at[, email_sent]}` |
+| POST | `/users/{id}/mfa-reset` | `platform.users.manage`. Switch off someone's two-factor sign-in (lost phone) and sign them out |
 | GET, PUT | `/roles`, `/roles/{key}` | read: staff; write: `platform.settings.manage` |
 | GET, PUT | `/settings`, `/settings/{key}` | `platform.settings.manage` |
 | GET, POST | `/dead-letters`, `/dead-letters/{id}/requeue` | `platform.analytics.read`, `executions.manage` |

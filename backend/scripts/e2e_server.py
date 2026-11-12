@@ -34,6 +34,8 @@ os.environ.update({
     "WAE_FRONTEND_URL": WEB,
     "WAE_CORS_ORIGINS": WEB,
     "WAE_EMBEDDED_WORKER": "true",
+    # The shared e2e admin signs in with a password; the two-factor test enrolls its own user.
+    "WAE_STAFF_MFA_REQUIRED": "false",
     "WAE_WORKER_POLL_SECONDS": "0.2",
     "WAE_RATE_LIMIT_PER_MINUTE": "100000",
     "WAE_AUTH_RATE_LIMIT_PER_MINUTE": "100000",

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api, type Page } from "@/lib/api";
 import { IssuedLink, passwordProblem } from "@/components/auth-card";
+import { MfaSetup, RecoveryCodes } from "@/components/mfa";
 import { useSession } from "@/lib/session";
 import { fmtDate, fmtRelative, titleCase } from "@/lib/format";
 import { Badge, Button, Card, CardHeader, Checkbox, Dialog, ErrorState, Field, InlineError, Input, Notice, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Td, Textarea, Th } from "@/components/ui";
@@ -38,6 +39,7 @@ function Account() {
           {password.isSuccess && <Notice tone="success">Password changed.</Notice>}
           <Button type="submit" variant="primary" loading={password.isPending} disabled={!pw.current_password || pw.new_password.length < 10}>Change password</Button>
         </form></Card>
+      <Security />
       <Card><CardHeader title="Active sessions" />
         {sessions.isLoading ? <Spinner /> : sessions.error ? <div className="p-4"><ErrorState error={sessions.error} /></div> : (
           <Table><tbody>{sessions.data!.items.map((s) => (
@@ -50,6 +52,58 @@ function Account() {
             <tr key={h.id}><Td className="text-xs text-muted">{fmtDate(h.created_at)}</Td><Td>{h.success ? <Badge tone="success">Success</Badge> : <Badge tone="danger">Failed</Badge>}</Td>
               <Td className="font-mono text-2xs text-muted">{h.ip ?? "-"}</Td><Td className="text-xs text-muted">{h.reason?.replace(/_/g, " ") ?? ""}</Td></tr>))}</tbody></Table>)}</Card>
     </div>
+  );
+}
+
+function Security() {
+  const qc = useQueryClient();
+  const session = useSession();
+  const status = useQuery({ queryKey: ["mfa"], queryFn: () => api<{ enabled: boolean; required: boolean; enabled_at: string | null; recovery_codes_left: number }>("/auth/mfa", { org: false }) });
+  const [mode, setMode] = useState<null | "enable" | "codes" | "disable">(null);
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const done = () => { setMode(null); setCode(""); setPassword(""); setCodes(null); qc.invalidateQueries({ queryKey: ["mfa"] }); session.refresh(); };
+  const regen = useMutation({ mutationFn: () => api<{ recovery_codes: string[] }>("/auth/mfa/recovery-codes", { method: "POST", org: false, body: { code } }), onSuccess: (r) => setCodes(r.recovery_codes) });
+  const disable = useMutation({ mutationFn: () => api("/auth/mfa/disable", { method: "POST", org: false, body: { password, code } }), onSuccess: done });
+  const s = status.data;
+  return (
+    <Card><CardHeader title="Two-factor sign-in" description="A code from an authenticator app on your phone, in addition to your password." />
+      {status.isLoading ? <Spinner /> : status.error ? <div className="p-4"><ErrorState error={status.error} /></div> : s && (
+        <div className="space-y-3 p-4">
+          <div className="flex items-center gap-2 text-sm">{s.enabled ? <Badge tone="success">On</Badge> : <Badge tone="warning">Off</Badge>}
+            {s.enabled && <span className="text-xs text-muted">since {fmtDate(s.enabled_at)} - {s.recovery_codes_left} recovery codes left</span>}</div>
+          {s.required && <p className="text-xs text-muted">Required for Weakless team accounts.</p>}
+          {s.enabled && s.recovery_codes_left <= 3 && <Notice tone="warning">You are running out of recovery codes. Create new ones.</Notice>}
+          <div className="flex flex-wrap gap-2">
+            {!s.enabled && <Button variant="primary" size="sm" onClick={() => setMode("enable")}>Turn on</Button>}
+            {s.enabled && <Button size="sm" onClick={() => setMode("codes")}>New recovery codes</Button>}
+            {s.enabled && !s.required && <Button size="sm" variant="danger" onClick={() => setMode("disable")}>Turn off</Button>}
+          </div>
+        </div>
+      )}
+      <Dialog open={mode === "enable"} onClose={done} title="Turn on two-factor sign-in">
+        {mode === "enable" && <MfaSetup start={() => api("/auth/mfa/enroll", { method: "POST", org: false })}
+          confirm={(c) => api("/auth/mfa/enroll/confirm", { method: "POST", org: false, body: { code: c } })} onDone={done} />}
+      </Dialog>
+      <Dialog open={mode === "codes"} onClose={done} title="New recovery codes" description="Your current recovery codes stop working.">
+        {codes ? <RecoveryCodes codes={codes} onContinue={done} continueLabel="Done" /> : (
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); regen.mutate(); }}>
+            <Field label="Current code" hint="From your authenticator app, or an unused recovery code."><Input value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" className="font-mono" /></Field>
+            <InlineError error={regen.error} />
+            <Button type="submit" variant="primary" loading={regen.isPending} disabled={code.trim().length < 6}>Create new codes</Button>
+          </form>
+        )}
+      </Dialog>
+      <Dialog open={mode === "disable"} onClose={done} title="Turn off two-factor sign-in" description="Your account will be protected by your password only.">
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); disable.mutate(); }}>
+          <Field label="Password"><Input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+          <Field label="Current code"><Input value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" className="font-mono" /></Field>
+          <InlineError error={disable.error} />
+          <Button type="submit" variant="danger" loading={disable.isPending} disabled={!password || code.trim().length < 6}>Turn off</Button>
+        </form>
+      </Dialog>
+    </Card>
   );
 }
 
@@ -68,13 +122,14 @@ function Team() {
   const update = useMutation({ mutationFn: (v: { id: string; body: any }) => api(`/users/${v.id}`, { method: "PATCH", org: false, body: v.body }), onSuccess: refresh });
   const resend = useMutation({ mutationFn: (u: any) => api(`/users/${u.id}/invitation`, { method: "POST", org: false }),
     onSuccess: (link: any, u: any) => setIssued({ title: `New invitation for ${u.email}`, kind: "invitation", link }) });
+  const resetMfa = useMutation({ mutationFn: (u: any) => api(`/users/${u.id}/mfa-reset`, { method: "POST", org: false }), onSuccess: refresh });
   const resetLink = useMutation({ mutationFn: (u: any) => api(`/users/${u.id}/reset-link`, { method: "POST", org: false }),
     onSuccess: (link: any, u: any) => setIssued({ title: `Password reset link for ${u.email}`, kind: "reset", link: { ...link, email_sent: false } }) });
   const passwordIssue = f.method === "password" ? passwordProblem(f.password, f.password) : null;
   return (
     <Card><CardHeader title="Weakless team" description="Staff accounts have their role in every organization." actions={<Button size="sm" variant="primary" onClick={() => setOpen(true)}><Plus className="h-3.5 w-3.5" /> Add team member</Button>} />
       {users.isLoading ? <Spinner /> : users.error ? <div className="p-4"><ErrorState error={users.error} /></div> : (
-        <Table><thead><tr><Th>User</Th><Th>Role</Th><Th>Status</Th><Th>Last sign-in</Th><Th /></tr></thead>
+        <Table><thead><tr><Th>User</Th><Th>Role</Th><Th>Status</Th><Th>2FA</Th><Th>Last sign-in</Th><Th /></tr></thead>
           <tbody>{users.data!.items.map((u) => {
             const self = u.id === me.user.id;
             const locked = u.platform_role === "SUPER_ADMIN" && me.user.platform_role !== "SUPER_ADMIN";
@@ -83,17 +138,20 @@ function Team() {
                 <Td>{self || locked ? <span className="text-xs">{titleCase(u.platform_role.toLowerCase())}</span> : (
                   <Select aria-label="Role" className="h-8 w-48 text-xs" value={u.platform_role} onChange={(e) => update.mutate({ id: u.id, body: { platform_role: e.target.value } })}>
                     {STAFF_ROLES.filter((r) => r !== "SUPER_ADMIN" || me.user.platform_role === "SUPER_ADMIN").map((r) => <option key={r} value={r}>{titleCase(r.toLowerCase())}</option>)}</Select>)}</Td>
-                <Td><StatusBadge status={u.invitation_pending ? "invited" : u.is_active ? "active" : "disabled"} /></Td><Td className="text-xs text-muted">{fmtRelative(u.last_login_at)}</Td>
+                <Td><StatusBadge status={u.invitation_pending ? "invited" : u.is_active ? "active" : "disabled"} /></Td>
+                <Td>{u.mfa_enabled ? <Badge tone="success">On</Badge> : <Badge tone="warning">Off</Badge>}</Td><Td className="text-xs text-muted">{fmtRelative(u.last_login_at)}</Td>
                 <Td className="text-right">{!self && !locked && (
                   <div className="flex justify-end gap-1.5">
                     {u.invitation_pending ? <Button size="sm" loading={resend.isPending && resend.variables?.id === u.id}
                       onClick={() => window.confirm(`Send a new invitation to ${u.email}? The previous link stops working.`) && resend.mutate(u)}>Resend invite</Button>
                       : u.is_active && <Button size="sm" loading={resetLink.isPending && resetLink.variables?.id === u.id}
                         onClick={() => window.confirm(`Create a password reset link for ${u.email}? It is recorded in the audit log.`) && resetLink.mutate(u)}>Reset link</Button>}
+                    {u.mfa_enabled && <Button size="sm" loading={resetMfa.isPending && resetMfa.variables?.id === u.id}
+                      onClick={() => window.confirm(`Reset two-factor sign-in for ${u.email}? Use this when their phone is lost. They are signed out and set it up again.`) && resetMfa.mutate(u)}>Reset 2FA</Button>}
                     <Button size="sm" onClick={() => update.mutate({ id: u.id, body: { is_active: !u.is_active } })}>{u.is_active ? "Disable" : "Enable"}</Button>
                   </div>)}</Td></tr>);
           })}</tbody></Table>)}
-      <div className="px-4 py-2"><InlineError error={update.error ?? resend.error ?? resetLink.error} /></div>
+      <div className="px-4 py-2"><InlineError error={update.error ?? resend.error ?? resetLink.error ?? resetMfa.error} /></div>
       <Dialog open={open} onClose={() => setOpen(false)} title="Add team member"
         footer={<><Button onClick={() => setOpen(false)}>Cancel</Button>
           <Button variant="primary" loading={create.isPending} disabled={!f.email.includes("@") || !f.full_name.trim() || !!passwordIssue} onClick={() => create.mutate()}>{f.method === "invite" ? "Send invitation" : "Create account"}</Button></>}>
@@ -154,6 +212,7 @@ function Platform() {
   const [ai, setAi] = useState({ provider: "anthropic", model: "claude-opus-5-5" });
   const [plan, setPlan] = useState("internal");
   const [fallback, setFallback] = useState(true);
+  const [staffMfa, setStaffMfa] = useState(true);
   const get = (k: string) => settings.data?.items.find((i: any) => i.key === k)?.value;
   useEffect(() => {
     if (!settings.data) return;
@@ -161,6 +220,7 @@ function Platform() {
     setAi(get("ai.default") ?? { provider: "anthropic", model: "claude-opus-5-5" });
     setPlan(get("billing.default_plan") ?? "internal");
     setFallback(get("ai.anthropic_refusal_fallback") ?? true);
+    setStaffMfa(get("security.staff_mfa_required") ?? true);
   }, [settings.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const put = useMutation({ mutationFn: (v: { key: string; value: unknown }) => api(`/settings/${v.key}`, { method: "PUT", org: false, body: { value: v.value } }), onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }) });
   let parsed: unknown = null;
@@ -171,6 +231,12 @@ function Platform() {
   const flag = (ok: boolean, yes = "Configured", no = "Not configured") => ok ? <Badge tone="success">{yes}</Badge> : <Badge tone="warning">{no}</Badge>;
   return (
     <div className="grid gap-5 lg:grid-cols-2">
+      <Card className="lg:col-span-2"><CardHeader title="Sign-in security" />
+        <div className="space-y-2 p-4">
+          <Checkbox label="Require two-factor sign-in for Weakless team accounts" checked={staffMfa}
+            onChange={(v) => { if (v || window.confirm("Turn off the two-factor requirement for the Weakless team? Team accounts can reach every client organization.")) { setStaffMfa(v); put.mutate({ key: "security.staff_mfa_required", value: v }); } }} />
+          <p className="text-xs text-muted">Team members without it set it up at their next sign-in. Client users can switch it on for themselves under Settings.</p>
+        </div></Card>
       <Card><CardHeader title="AI defaults" description="Used by AI steps that do not choose a provider or model." />
         <div className="space-y-3 p-4">
           <div className="grid grid-cols-2 gap-3">

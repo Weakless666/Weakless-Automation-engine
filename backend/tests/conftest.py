@@ -19,6 +19,7 @@ os.environ["WAE_BOOTSTRAP_ADMIN_EMAIL"] = ""
 os.environ["WAE_BOOTSTRAP_ADMIN_PASSWORD"] = ""
 os.environ["WAE_PUBLIC_BASE_URL"] = "http://localhost:8000"
 os.environ["WAE_FRONTEND_URL"] = "http://localhost:3000"
+os.environ["WAE_STAFF_MFA_REQUIRED"] = "false"  # tests that cover the requirement switch it on explicitly
 for _name in ("WAE_SECRET_KEY", "WAE_MASTER_KEYS", "WAE_ACTIVE_KEY_ID", "WAE_STRIPE_SECRET_KEY", "WAE_STRIPE_WEBHOOK_SECRET",
               "WAE_ANTHROPIC_API_KEY", "WAE_OPENAI_API_KEY", "WAE_GEMINI_API_KEY", "WAE_SMTP_HOST", "WAE_SMTP_FROM", "WAE_SENTRY_DSN"):
     os.environ[_name] = ""
