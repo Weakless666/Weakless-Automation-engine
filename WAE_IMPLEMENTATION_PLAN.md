@@ -26,8 +26,8 @@ Ordered by how much risk each item removes.
 
 ### 1. Verify on real infrastructure (before any client data)
 1. Run `docker compose up --build` on a machine with Docker; fix whatever the first real build reveals.
-2. Run both migrations on PostgreSQL and execute the cross-tenant checks in WAE_SECURITY.md as the `wae_app` role.
-3. Run the backend test suite against PostgreSQL (add a `WAE_TEST_DATABASE_URL` switch to `tests/conftest.py`), with two workers, to exercise `SKIP LOCKED` claiming and RLS together.
+2. ~~Run the migrations on PostgreSQL and the cross-tenant checks as a non-superuser role~~ (done 2026-11-12: `tests/test_rls.py`, locally and in CI).
+3. ~~Run the backend test suite against PostgreSQL with parallel workers~~ (done 2026-11-12: `WAE_TEST_DATABASE_URL`, four-worker queue test).
 4. Push to GitHub and get the CI workflow green.
 
 ### 2. Verify against real providers

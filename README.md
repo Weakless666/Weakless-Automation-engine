@@ -82,7 +82,10 @@ Open http://localhost:3000 and sign in with the bootstrap admin. The frontend pr
 ### 3. Tests
 
 ```bash
-cd backend && pytest -q          # 83 tests, SQLite, no network access needed
+cd backend && pytest -q          # 104 tests on SQLite, no network access needed (RLS tests are skipped)
+# The same suite on PostgreSQL, under Row Level Security: the role must own the database and be
+# neither SUPERUSER nor BYPASSRLS. The schema is built from the migrations; tables are emptied per test.
+WAE_TEST_DATABASE_URL=postgresql://wae:wae@localhost:5432/wae_test pytest -q
 cd frontend && npm run typecheck && npm run build
 cd frontend && npm run e2e       # browser tests of the workflow builder (below)
 ```
@@ -198,7 +201,7 @@ Health checks: `GET /api/v1/health` (liveness), `GET /api/v1/health/ready` (data
 
 - [ ] `WAE_ENV=production`; `WAE_SECRET_KEY` and `WAE_MASTER_KEYS` generated, stored in a secret manager, backed up separately from the database
 - [ ] PostgreSQL with separate owner and application roles; the application role is not a superuser and has no `BYPASSRLS`
-- [ ] `alembic upgrade head` succeeded, including migration `0002` (Row Level Security) - **run the cross-tenant checks in WAE_SECURITY.md against PostgreSQL before onboarding a second client**
+- [ ] `alembic upgrade head` succeeded, including the Row Level Security migrations; the cross-tenant check in WAE_SECURITY.md returns 0 rows as the application role
 - [ ] HTTPS in front of the web service; `WAE_COOKIE_SECURE=true`; public URLs set
 - [ ] `WAE_EMBEDDED_WORKER=false` on the API and at least one dedicated worker running
 - [ ] Bootstrap admin created, then the bootstrap variables removed and the password changed; two-factor sign-in set up (required for staff by default)

@@ -105,6 +105,43 @@ def test_usage_counters_match_records_and_keep_quota_checks_constant(db, org, wo
     assert q.count == 1
 
 
+def test_parallel_workers_process_every_job_exactly_once(db, org):
+    """Four workers drain one queue at the same time (FOR UPDATE SKIP LOCKED on PostgreSQL,
+    compare-and-swap on SQLite): every execution runs once, none twice."""
+    import threading
+
+    from app.engine.queue import Worker
+    from app.models import ExecutionQueueJob, WorkflowExecutionStep
+    from app.services.executions import start_execution
+
+    wf = make_workflow(db, org, wf_def([TRIG, {"id": "x", "type": "logic.transform", "config": {"fields": {"a": 1}}}], [("t", "x")]))
+    ids = [start_execution(db, wf, trigger_type="manual", payload={"n": i}).id for i in range(24)]
+    db.commit()
+    processed: list[str] = []
+    lock = threading.Lock()
+
+    def drain(name: str):
+        w = Worker(name)
+        while (outcome := w.run_once()) is not None:
+            with lock:
+                processed.append(outcome)
+
+    threads = [threading.Thread(target=drain, args=(f"w{i}",)) for i in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=120)
+    db.expire_all()
+    statuses = [db.get(WorkflowExecution, i).status for i in ids]
+    assert statuses == ["COMPLETED"] * 24
+    steps_per_run = dict(db.execute(select(WorkflowExecutionStep.execution_id, func.count()).where(
+        WorkflowExecutionStep.execution_id.in_(ids)).group_by(WorkflowExecutionStep.execution_id)).all())
+    assert set(steps_per_run.values()) == {2}  # trigger + transform, never duplicated
+    jobs = db.scalars(select(ExecutionQueueJob).where(ExecutionQueueJob.execution_id.in_(ids))).all()
+    assert all(j.status == "DONE" and j.attempts == 1 for j in jobs)
+    assert len({j.locked_by for j in jobs}) > 1  # the work really was shared
+
+
 def test_migration_backfills_subscriptions_and_counters(tmp_path, monkeypatch, worker):
     """Upgrading an existing database (0005 -> 0006) fills both new tables from existing data."""
     from alembic import command

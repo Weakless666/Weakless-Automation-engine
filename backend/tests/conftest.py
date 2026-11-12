@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import text
 
 os.environ["WAE_ENV"] = "test"
 os.environ["WAE_EMBEDDED_WORKER"] = "false"
@@ -32,10 +33,44 @@ from app.core.ratelimit import limiter  # noqa: E402
 
 ADMIN_PASSWORD = "Admin-Passw0rd-Test"
 
+# Set WAE_TEST_DATABASE_URL to a PostgreSQL database owned by a role that is neither superuser nor
+# BYPASSRLS to run the suite against PostgreSQL: the schema then comes from the real migrations
+# (including Row Level Security, which applies to the owner because it is FORCEd), and every test
+# starts from emptied tables. Without it each test gets a fresh SQLite file.
+PG_URL = os.environ.get("WAE_TEST_DATABASE_URL", "").strip()
+
+
+@pytest.fixture(scope="session")
+def _postgres_schema():
+    if not PG_URL:
+        yield
+        return
+    from alembic import command
+    from alembic.config import Config
+
+    os.environ["WAE_DATABASE_URL"] = PG_URL
+    get_settings.cache_clear()
+    dbmod.reset_engine()
+    with dbmod.get_engine().connect() as conn:
+        role = conn.execute(text("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user")).scalar()
+    assert not role, "WAE_TEST_DATABASE_URL must use a role without SUPERUSER/BYPASSRLS, or Row Level Security is not tested"
+    cfg = Config()
+    cfg.set_main_option("script_location", str(Path(__file__).resolve().parent.parent / "alembic"))
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, "head")
+    dbmod.reset_engine()
+    yield
+
+
+def _empty_postgres(engine) -> None:
+    tables = ", ".join(f'"{t.name}"' for t in dbmod.Base.metadata.sorted_tables)
+    with engine.begin() as conn:
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+
 
 @pytest.fixture(autouse=True)
-def database(tmp_path, monkeypatch):
-    url = f"sqlite:///{(tmp_path / 'test.db').as_posix()}"
+def database(tmp_path, monkeypatch, _postgres_schema):
+    url = PG_URL or f"sqlite:///{(tmp_path / 'test.db').as_posix()}"
     monkeypatch.setenv("WAE_DATABASE_URL", url)
     get_settings.cache_clear()
     dbmod.reset_engine()
@@ -43,7 +78,10 @@ def database(tmp_path, monkeypatch):
     from app.seed import seed_all
 
     engine = dbmod.get_engine()
-    dbmod.Base.metadata.create_all(engine)
+    if PG_URL:
+        _empty_postgres(engine)
+    else:
+        dbmod.Base.metadata.create_all(engine)
     with dbmod.session_scope(bypass_rls=True) as s:
         seed_all(s)
     limiter.reset()

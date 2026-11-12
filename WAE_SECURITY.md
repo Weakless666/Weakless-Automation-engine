@@ -35,10 +35,10 @@ Not implemented: SSO/OIDC login, WebAuthn / passkeys.
 
 ## Tenant isolation
 1. **API layer (tested).** The tenant comes from `X-Organization-Id` only after membership is verified. Every object lookup verifies `organization_id` (`api/common.py: owned`). Foreign tenants and foreign object ids both return 404, so existence is not revealed. Tests cover header spoofing, IDOR on workflows, executions and integrations, list scoping, and using another tenant's integration id inside a workflow.
-2. **Database layer (not yet verified).** PostgreSQL Row Level Security with `FORCE`, driven by a per-transaction setting. Written in migration `0002`; never executed against PostgreSQL here.
+2. **Database layer (tested on PostgreSQL).** Row Level Security with `FORCE`, driven by a per-transaction setting (migrations `0002`, `0006`). `tests/test_rls.py` proves in the database that a tenant session sees only its own rows in every tenant table, a session without a tenant sees nothing, and cross-tenant writes fail; the whole suite also runs under the policies as a non-superuser owner role, locally and in CI.
 3. **Cryptographic binding.** Each ciphertext is authenticated with its organization id, so an encrypted credential copied to another tenant's row cannot be decrypted. Tested.
 
-**Before onboarding a second client on PostgreSQL, verify layer 2**, for example:
+**On a production database**, the same check by hand (the application role must not be a superuser or have `BYPASSRLS`, which ignore RLS):
 
 ```sql
 -- as the application role (not a superuser)
@@ -90,9 +90,8 @@ Residual risk: DNS rebinding between validation and connection. Use egress filte
 Sensitive operations write `audit_logs` in the same transaction as the change: authentication events, user/role/setting changes, organization and member changes, workflow create/publish/activate/delete, execution cancel/retry/resume, agent and tool changes, integration lifecycle, webhook secret operations, template and package operations, billing and plan changes, approvals. Tested for the workflow lifecycle and the end-to-end journey.
 
 ## Known gaps
-- Row Level Security unverified on PostgreSQL (above).
 - No SSO or passkeys.
-- The general per-client API budget is per instance (security-relevant limits are shared). Shared limits are tested on SQLite, not yet on PostgreSQL.
+- The general per-client API budget is per instance (security-relevant limits are shared). Shared limits are tested on SQLite and PostgreSQL.
 - No automated dependency or container scanning is configured.
 - The frontend has no Content-Security-Policy header (the API has one).
 - No penetration test has been performed.

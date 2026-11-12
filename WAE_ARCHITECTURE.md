@@ -41,7 +41,7 @@ Both operating modes use the same infrastructure. An organization has `mode = ag
 ### Multi-tenancy and access (`deps.py`, `rbac.py`, `db.py`)
 - Every tenant-owned table carries `organization_id`.
 - The client names a tenant with `X-Organization-Id`. That is only a request: the API verifies that the user is Weakless staff or an active member, and answers "not found" otherwise. Only then is the database session bound to the tenant.
-- Two layers of isolation: (1) every lookup goes through `owned()` or an explicit `organization_id` filter; (2) on PostgreSQL, Row Level Security policies compare `organization_id` with a per-transaction setting. Layer 1 is covered by tests. **Layer 2 has not been executed against a real PostgreSQL** (see the report).
+- Two layers of isolation: (1) every lookup goes through `owned()` or an explicit `organization_id` filter; (2) on PostgreSQL, Row Level Security policies compare `organization_id` with a per-transaction setting. Both layers are covered by tests: layer 1 by the API tests on every database, layer 2 by `tests/test_rls.py` and by running the full suite on PostgreSQL under the policies (locally and in CI).
 - Roles: six platform roles on `users.platform_role` apply to all organizations; three client roles live on `organization_members`. Permissions are rows in `roles` / `permissions` / `role_permissions`, editable by a Super Admin.
 
 ### Workflow model (`engine/graph.py`, `services/workflows.py`)
@@ -65,7 +65,7 @@ An interpreter that persists its state after every node.
 Known limit: a node handler cannot be forcibly interrupted. Time limits are enforced between nodes and through HTTP/AI client timeouts.
 
 ### Queue and worker (`engine/queue.py`)
-Jobs are rows in `execution_queues`. Workers claim them atomically, heartbeat implicitly through a visibility timeout, retry infrastructure failures with back-off, and move jobs to `DEAD` (the dead-letter queue) after `max_attempts`. The same loop runs maintenance: stale-job recovery, cron schedules, approval expiry and billing period roll-over. Multi-worker claiming on PostgreSQL is implemented but only the single-worker path is exercised by tests.
+Jobs are rows in `execution_queues`. Workers claim them atomically, heartbeat implicitly through a visibility timeout, retry infrastructure failures with back-off, and move jobs to `DEAD` (the dead-letter queue) after `max_attempts`. The same loop runs maintenance: stale-job recovery, cron schedules, approval expiry and billing period roll-over. A test runs four workers against one queue on SQLite and PostgreSQL and checks that every job is processed exactly once.
 
 ### Triggers and events (`services/webhooks.py`, `services/events.py`, `services/scheduler.py`)
 - Endpoint-backed triggers (webhook, form, payment, message, email, database event) get an unguessable URL. Requests are size-limited, rate-limited per endpoint, verified (HMAC with timestamp, shared secret, Stripe, Meta, Telegram or Slack schemes), de-duplicated and recorded in `webhook_events`; events can be replayed.

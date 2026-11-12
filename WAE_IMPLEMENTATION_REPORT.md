@@ -9,8 +9,8 @@ The platform exists end to end: backend (about 10,000 lines of Python), frontend
 Three things limit how far "working" can be claimed today:
 
 1. **No external service has been contacted.** Every provider call in the tests is mocked. No real AI model, messaging provider, CRM, OAuth server, Stripe or SMTP server has been used.
-2. **PostgreSQL has never run this code.** Development and tests use SQLite. The Row Level Security migration in particular is unexecuted.
-3. **Docker and CI have never run.** Neither was available in the development environment.
+2. ~~PostgreSQL has never run this code.~~ Since 2026-11-12 the whole backend suite runs on PostgreSQL as well (locally on 17, in CI on 16), under Row Level Security, with direct isolation tests and parallel workers.
+3. **Docker has never run** (not available in the development environment). CI runs on every push and has been green since the first run.
 
 ## 1. Implemented and tested
 
@@ -61,12 +61,12 @@ Code exists and is reasoned to be correct; it has not been run against the real 
 | OpenAI, OpenAI-compatible, Gemini | Request/response mapping tested with mocked HTTP only |
 | Integration adapters | Telegram, OpenAI and MCP are exercised with mocks. Gmail, Google Calendar/Drive/Sheets/Docs, Outlook, Microsoft 365, WhatsApp, Discord, Slack, SMTP, Notion, Airtable, Supabase, PostgreSQL, HubSpot, Pipedrive, Salesforce, Shopify, WooCommerce, Stripe, Meta, LinkedIn, Mailchimp, REST API and custom webhook adapters have **never been called**, mocked or live |
 | OAuth | Authorization URL, state handling, code exchange and refresh are implemented; no flow has been completed |
-| PostgreSQL | Migrations, Row Level Security policies, `SKIP LOCKED` job claiming, JSONB behaviour |
+| PostgreSQL | Verified 2026-11-12 (migrations, RLS, `SKIP LOCKED` with parallel workers, JSONB, upserts). Not yet measured with production-sized data |
 | Stripe billing | Checkout session creation never called. Webhook signature verification and idempotency are tested; event handling for real payloads is not |
 | Email (SMTP) | Platform notifications and the SMTP integration |
 | Sentry | Initialization only |
 | Docker, compose, backups | Never built or run |
-| CI | Never run |
+| CI | Runs on GitHub on every push: SQLite and PostgreSQL test suites, migrations, frontend build, browser tests. Green on every run so far |
 | Frontend | Typechecks and builds; pages render against live data. Interactive flows (dragging and connecting nodes, dialogs, forms) were not driven by a person or by automated tests, and the visual design was not reviewed on screen in this session |
 | Templates | 45 of 46 are validated but have not been executed |
 | Multi-worker operation | Only one worker has been run |
@@ -113,4 +113,4 @@ Relative to the brief:
 
 ## Recommended first step
 
-Follow section 1 of WAE_IMPLEMENTATION_PLAN.md: bring the stack up on PostgreSQL with Docker and run the tenant-isolation checks. Until that is done, do not put more than one real client on the system.
+Follow section 1 of WAE_IMPLEMENTATION_PLAN.md: bring the stack up with Docker on a server. Tenant isolation is verified on PostgreSQL by the test suite; on the production database, confirm that the application role is not a superuser and has no `BYPASSRLS` before onboarding clients.

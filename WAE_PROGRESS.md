@@ -2,14 +2,14 @@
 
 Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 
-**TESTED** means automated tests exist and passed on the last run (100 backend tests on SQLite, 2026-11-12, including checks that every API operation documents a typed response and the error envelope, the data retention sweeps, and that event triggers and quota checks issue a fixed number of queries however large an organization grows). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 28 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, analytics, billing and plans, audit, executions (retry, resume), notifications and staff invitations, two-factor sign-in, and that every main screen opens (72/72 over three repeats in Edge, 2026-11-12; 28/28 after the retention screen and the phone and tablet layouts were added). Every screen is checked to fit 390 px and 768 px wide without sideways scrolling; below 1024 px the sidebar is a drawer and the builder's step list and settings become a drawer and a bottom sheet. Screens are not checked for visual design.
+**TESTED** means automated tests exist and passed on the last run (104 backend tests on SQLite and on PostgreSQL; 3 of them run only on PostgreSQL, 2026-11-12, including checks that every API operation documents a typed response and the error envelope, the data retention sweeps, and that event triggers and quota checks issue a fixed number of queries however large an organization grows). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 28 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, analytics, billing and plans, audit, executions (retry, resume), notifications and staff invitations, two-factor sign-in, and that every main screen opens (72/72 over three repeats in Edge, 2026-11-12; 28/28 after the retention screen and the phone and tablet layouts were added). Every screen is checked to fit 390 px and 768 px wide without sideways scrolling; below 1024 px the sidebar is a drawer and the builder's step list and settings become a drawer and a bottom sheet. Screens are not checked for visual design.
 
 | # | Module | Backend | Frontend | Notes |
 |---|---|---|---|---|
 | 01 | Admin Control Center | TESTED | TESTED (browser) | All metrics come from queries; filters by date, organization, automation, status |
-| 02 | Organization & Client Management | TESTED | TESTED (browser) | RBAC and API-layer isolation tested; PostgreSQL RLS written, not executed |
+| 02 | Organization & Client Management | TESTED | TESTED (browser) | RBAC and API-layer isolation tested; PostgreSQL Row Level Security tested directly in the database (2026-11-12) |
 | 03 | Visual Automation Builder | TESTED | TESTED | API tests plus Playwright browser tests (4 scenarios): add, drag-connect, configure, save, reload, test run, publish, activate, validation, duplicate/delete, switch outputs, concurrent edits |
-| 04 | Workflow Execution Engine | TESTED | TESTED (browser) | Branching, loops, waits, retries, crash recovery, dead letters, idempotency, cancellation tested; multi-worker claiming on PostgreSQL untested |
+| 04 | Workflow Execution Engine | TESTED | TESTED (browser) | Branching, loops, waits, retries, crash recovery, dead letters, idempotency, cancellation tested; four parallel workers process every job exactly once on SQLite and PostgreSQL |
 | 05 | AI Agent Engine | TESTED | TESTED (browser) | Tested with a stand-in Anthropic client and mocked HTTP for OpenAI-compatible, Gemini and MCP; no live model call has been made |
 | 06 | Integration Hub | TESTED (framework) / IMPLEMENTED (adapters) | TESTED (browser) | Lifecycle, vault, health, revocation tested with Telegram, OpenAI and MCP mocks. The other adapters are implemented but have never been called, mocked or live |
 | 07 | Trigger & Event Management | TESTED | IMPLEMENTED | Signatures, replay protection, de-duplication, rate limits, schedules, app events, replay tested |
@@ -21,9 +21,9 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 | 13 | Notifications | TESTED | TESTED (browser) | In-app, preferences, webhook/Slack channel delivery tested with mocks; SMTP, Discord and Telegram channels untested |
 | 14 | Admin Security & Audit | TESTED | TESTED (browser) | Password reset, invitations and two-factor sign-in (TOTP, required for staff) added 2026-11-12, tested in API and browser. Gaps: SSO, passkeys |
 | - | Data retention | TESTED | TESTED (browser) | Hourly batched clean-up of execution history, events, usage detail (compacted, totals kept), notifications, queue jobs, expired links; audit optional. Added 2026-11-12. Not timed on PostgreSQL at volume |
-| - | Database migrations | TESTED on SQLite / BLOCKED on PostgreSQL | n/a | No PostgreSQL available locally |
+| - | Database migrations | TESTED on SQLite and PostgreSQL | n/a | Upgrade, `alembic check`, downgrade to base and upgrade again, locally (PostgreSQL 17) and in CI (PostgreSQL 16) |
 | - | Docker deployment | BLOCKED | BLOCKED | Written; Docker is not installed in the development environment |
-| - | CI | IMPLEMENTED | IMPLEMENTED | Runs on every push to GitHub (backend, PostgreSQL migrations, frontend build, browser tests). Results are visible only on github.com; not yet confirmed here |
+| - | CI | TESTED | TESTED | Runs on every push to GitHub: backend suite on SQLite and on PostgreSQL under RLS, migrations, frontend build, browser tests. Runs 1-9 green (checked 2026-11-12) |
 | - | Documentation | IMPLEMENTED | | README and six WAE_* documents |
 
 ## Not started

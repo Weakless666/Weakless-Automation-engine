@@ -100,7 +100,7 @@ CREATE POLICY tenant_isolation ON t
 
 The application sets both settings at the start of every transaction (`app/db.py`). A session with neither set sees no tenant rows. `organization_members` and `organizations` are not under RLS because authentication must read them before a tenant is known; they are guarded in the API layer. A test asserts that every table with a mandatory `organization_id` is in `TENANT_TABLES` (except `organization_members`).
 
-**Status:** the RLS migration is a no-op on SQLite and has not been run against PostgreSQL in this environment. The CI workflow applies both migrations to PostgreSQL, but it has not run yet.
+**Status (2026-11-12):** verified on PostgreSQL 17 locally and PostgreSQL 16 in CI. The whole backend suite runs against PostgreSQL as a role without `SUPERUSER`/`BYPASSRLS` that owns the tables (so `FORCE` makes the policies apply to it), and `tests/test_rls.py` checks isolation in the database itself: a tenant session sees and counts only its own rows in every tenant table, a session with no tenant sees nothing, cross-tenant inserts are rejected by the policy and cross-tenant updates/deletes affect no rows. The migration is a no-op on SQLite.
 
 ## Migrations
 

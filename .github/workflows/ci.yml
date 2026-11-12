@@ -40,6 +40,15 @@ jobs:
           alembic check
           alembic downgrade base
           alembic upgrade head
+      - name: All tests on PostgreSQL as a role subject to Row Level Security
+        env:
+          PGPASSWORD: ci-password
+          WAE_TEST_DATABASE_URL: postgresql://wae_app:app-password@localhost:5432/wae_test
+        run: |
+          psql -h localhost -U wae_owner -d wae -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE wae_app LOGIN PASSWORD 'app-password' NOSUPERUSER NOBYPASSRLS" \
+            -c "CREATE DATABASE wae_test OWNER wae_app"
+          pytest -q
 
   frontend:
     runs-on: ubuntu-latest
