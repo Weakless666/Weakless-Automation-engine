@@ -9,7 +9,7 @@ What is implemented, where, and how it is verified. "Tested" means an automated 
 | Sessions | Server-side row per session + signed token; revocable; 12 h default | Tested (logout revokes) |
 | Cookies | `HttpOnly`, `SameSite=Lax`, `Secure` when `WAE_COOKIE_SECURE=true` | Code |
 | CSRF | Cookie-authenticated mutations need the per-session token in `X-WAE-CSRF` | Tested |
-| Brute force | Per-IP and per-email login rate limit; lock for 15 min after 8 failures; generic error; constant-time dummy hash for unknown accounts | Tested |
+| Brute force | Per-IP and per-email login rate limit, shared by every API instance through the database (also for password reset, two-factor codes and invitations); lock for 15 min after 8 failures; generic error; constant-time dummy hash for unknown accounts | Tested, including two limiter instances sharing one limit, concurrency and surviving an instance restart |
 | Login history, session list, remote sign-out | `/auth/login-history`, `/auth/sessions` | Code |
 | Password change | Revokes all other sessions | Code |
 | Password reset | Single-use link, 1 hour, only a SHA-256 of the token stored; a newer link supersedes older ones; the request endpoint answers identically whether or not the account exists; completing it revokes all sessions and clears lockout | Tested |
@@ -84,7 +84,7 @@ Residual risk: DNS rebinding between validation and connection. Use egress filte
 - One error envelope; unhandled exceptions return a generic 500 with a request id and are logged server-side. Tested.
 - Security headers on API responses (`nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, restrictive CSP, HSTS when cookies are secure) and on frontend pages.
 - CORS is limited to configured origins.
-- Rate limiting is per process (see WAE_ARCHITECTURE.md).
+- Sign-in, reset, two-factor, invitation and hook limits are shared across instances; the general per-client API budget is per process (see WAE_ARCHITECTURE.md).
 
 ## Audit
 Sensitive operations write `audit_logs` in the same transaction as the change: authentication events, user/role/setting changes, organization and member changes, workflow create/publish/activate/delete, execution cancel/retry/resume, agent and tool changes, integration lifecycle, webhook secret operations, template and package operations, billing and plan changes, approvals. Tested for the workflow lifecycle and the end-to-end journey.
@@ -92,7 +92,7 @@ Sensitive operations write `audit_logs` in the same transaction as the change: a
 ## Known gaps
 - Row Level Security unverified on PostgreSQL (above).
 - No SSO or passkeys.
-- Rate limiting is not shared across API instances.
+- The general per-client API budget is per instance (security-relevant limits are shared). Shared limits are tested on SQLite, not yet on PostgreSQL.
 - No automated dependency or container scanning is configured.
 - The frontend has no Content-Security-Policy header (the API has one).
 - No penetration test has been performed.

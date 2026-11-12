@@ -14,7 +14,7 @@ from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, paginate, parse_uuid
 from app.config import get_settings
 from app.core.errors import AppError, Conflict, Forbidden, NotFound, RateLimited, Unauthorized, ValidationFailed
-from app.core.ratelimit import limiter
+from app.core.ratelimit import shared_limiter as limiter  # shared across API instances
 from app.core.security import (
     SESSION_COOKIE, create_session_token, hash_password, random_token, session_expiry, validate_password_strength, verify_password,
 )

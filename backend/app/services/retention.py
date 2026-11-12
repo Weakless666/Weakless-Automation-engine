@@ -17,7 +17,7 @@ entry is a number of days, or ``None`` to keep that data forever:
 * ``queue_jobs_days`` - delete completed queue jobs (dead letters are kept).
 * ``audit_days`` - delete audit log and sign-in history. Off by default.
 
-Expired sign-in sessions, account links and OAuth states are always removed a week
+Finished shared rate-limit windows are removed on every run. Expired sign-in sessions, account links and OAuth states are always removed a week
 after they expire. Every sweep works in batches so it never holds long locks; the
 worker runs it hourly and ``python -m app.cli retention`` runs it on demand.
 """
@@ -203,6 +203,9 @@ def run_retention(db: Session, now: datetime | None = None) -> dict[str, int]:
         _delete_by_id(db, UserSession, select(UserSession.id).where(UserSession.expires_at < expired))
         + _delete_by_id(db, UserToken, select(UserToken.id).where(UserToken.expires_at < expired))
         + _delete_by_id(db, OAuthState, select(OAuthState.id).where(OAuthState.expires_at < expired)))
+    from app.core.ratelimit import purge_expired
+
+    out["rate_limit_windows_deleted"] = purge_expired(db, now.timestamp())
     if any(out.values()):
         log.info("retention: %s", ", ".join(f"{k}={v}" for k, v in out.items() if v))
     return out

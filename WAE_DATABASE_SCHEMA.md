@@ -1,6 +1,6 @@
 # WAE Database Schema
 
-Source of truth: `backend/app/models.py` (52 tables). Migrations: `backend/alembic/versions/`.
+Source of truth: `backend/app/models.py` (53 tables). Migrations: `backend/alembic/versions/`.
 
 ## Conventions
 
@@ -112,6 +112,7 @@ The application sets both settings at the start of every transaction (`app/db.py
 | `0004` | Two-factor sign-in columns on `users` |
 | `0005` | `workflow_executions.details_purged_at` and indexes for the retention sweeps |
 | `0006` | `app_event_subscriptions` and `usage_counters`, back-filled from published versions and existing usage records; Row Level Security on both (PostgreSQL). `0002` now carries its own frozen table list, so later tenant tables get their policies in their own migration |
+| `0007` | `rate_limit_counters` for limits shared by every API instance (not a tenant table: keys are SHA-256 digests) |
 
 ## Data retention
 

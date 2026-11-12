@@ -858,6 +858,17 @@ class UsageCounter(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class RateLimitCounter(Base):
+    """Shared rate-limit windows (see app/core/ratelimit.py). ``bucket`` is a SHA-256 of the limit key."""
+
+    __tablename__ = "rate_limit_counters"
+    __table_args__ = (Index("ix_rate_limit_counters_expires", "expires_at"),)
+    bucket: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_start: Mapped[int] = mapped_column(BigInteger, primary_key=True)  # epoch seconds
+    hits: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
 class BillingEvent(Base):
     __tablename__ = "billing_events"
     id: Mapped[uuid.UUID] = pk()

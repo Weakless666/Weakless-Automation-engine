@@ -45,6 +45,6 @@ Ordered by how much risk each item removes.
 14. Mailbox polling for the Email trigger if clients cannot use inbound-parse webhooks.
 
 ### 4. Scale-out
-15. Shared rate limiting (gateway or Redis) when running more than one API instance.
+15. ~~Shared rate limiting when running more than one API instance~~ (done 2026-11-12 in the database, no Redis; the general per-client budget stays per process).
 16. ~~Retention jobs for `workflow_execution_steps`, `webhook_events` and `usage_records`~~ (done 2026-11-12, configurable under Settings -> Platform).
 17. Index and query review under realistic volume. Done 2026-11-12 for the two paths that grew with volume: application-event triggers are an indexed subscription lookup, and quota checks read running counters. Still to do: measure on PostgreSQL with production-sized data (`EXPLAIN ANALYZE` on the execution list, analytics and retention queries).

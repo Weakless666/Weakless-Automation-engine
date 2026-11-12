@@ -29,9 +29,9 @@ backend/
     integrations/   provider catalog + adapters, OAuth, connection lifecycle
     services/       workflows, executions, webhooks, events, scheduler, approvals, usage, billing, analytics, notifications
     templates/      template library, industry packages, install/update service
-    models.py       complete schema (52 tables)
+    models.py       complete schema (53 tables)
     cli.py          operational commands
-  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor, 0005 data retention, 0006 event index and usage counters)
+  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor, 0005 data retention, 0006 event index and usage counters, 0007 shared rate limits)
   tests/            83 tests: engine, security, accounts, two-factor, platform/e2e, operations
 frontend/           Next.js application
 deploy/             PostgreSQL role bootstrap, backup script
@@ -157,6 +157,7 @@ All backend settings use the `WAE_` prefix.
 | `WAE_DEFAULT_ORG_CONCURRENCY` | no | `5` | Concurrent executions per organization without a plan limit |
 | `WAE_ALLOW_PRIVATE_NETWORK` | no | `false` | Allow workflow HTTP calls to private addresses (needed for local model servers) |
 | `WAE_RATE_LIMIT_PER_MINUTE` / `WAE_AUTH_RATE_LIMIT_PER_MINUTE` | no | `300` / `20` | Per-client API and login limits |
+| `WAE_RATE_LIMIT_STORE` | no | `database` | Where sign-in, reset, two-factor, invitation and hook limits live: `database` (shared by every instance) or `memory` (single instance) |
 | `WAE_ANTHROPIC_API_KEY`, `WAE_OPENAI_API_KEY`, `WAE_GEMINI_API_KEY` | no | - | Platform-level AI keys (fallback when an organization has no AI integration) |
 | `WAE_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_FROM`, `_STARTTLS` | no | - | Platform email for notifications |
 | `WAE_STRIPE_SECRET_KEY`, `WAE_STRIPE_WEBHOOK_SECRET` | no | - | Enables Stripe Checkout and the Stripe webhook |
@@ -202,7 +203,7 @@ Health checks: `GET /api/v1/health` (liveness), `GET /api/v1/health/ready` (data
 - [ ] `WAE_EMBEDDED_WORKER=false` on the API and at least one dedicated worker running
 - [ ] Bootstrap admin created, then the bootstrap variables removed and the password changed; two-factor sign-in set up (required for staff by default)
 - [ ] Outbound egress filtering in place (defence in depth for SSRF); `WAE_ALLOW_PRIVATE_NETWORK` left `false` unless required
-- [ ] A gateway or load-balancer rate limit if more than one API instance runs (the built-in limiter is per process)
+- [ ] With several API instances, optionally a gateway limit for the general per-client budget (sign-in, code and hook limits are already shared through the database; the general budget is per process)
 - [ ] Backups running and a restore rehearsed; `./backups` shipped off-host
 - [ ] Sentry DSN and log shipping configured
 - [ ] Plans, prices and limits reviewed (seeded values are placeholders); model prices entered for non-Anthropic models

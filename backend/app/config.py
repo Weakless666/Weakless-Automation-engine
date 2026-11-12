@@ -13,6 +13,7 @@ import os
 import secrets
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -47,6 +48,7 @@ class Settings(BaseSettings):
     allow_private_network: bool = False  # SSRF guard: allow workflow HTTP calls to private IPs
     rate_limit_per_minute: int = 300
     auth_rate_limit_per_minute: int = 20
+    rate_limit_store: Literal["database", "memory"] = "database"  # where sign-in, code and hook limits are kept (shared across instances)
 
     staff_mfa_required: bool = True  # initial value of the security.staff_mfa_required platform setting
     bootstrap_admin_email: str = ""

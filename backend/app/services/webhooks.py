@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core import vault
 from app.core.errors import AppError, QuotaExceeded
-from app.core.ratelimit import limiter
+from app.core.ratelimit import shared_limiter as limiter  # shared across API instances
 from app.core.redact import redact
 from app.core.security import constant_time_equals, hmac_sha256_hex, sha256_hex
 from app.db import set_tenant, utcnow

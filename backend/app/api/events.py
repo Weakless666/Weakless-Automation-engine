@@ -13,7 +13,7 @@ from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, owned, paginate, parse_uuid
 from app.config import get_settings
 from app.core.errors import AppError, ValidationFailed
-from app.core.ratelimit import limiter
+from app.core.ratelimit import shared_limiter as limiter  # shared across API instances
 from app.core.security import constant_time_equals, random_token
 from app.db import new_session, set_tenant
 from app.deps import Ctx, client_ip, org_ctx
