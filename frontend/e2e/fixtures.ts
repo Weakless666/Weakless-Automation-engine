@@ -1,4 +1,4 @@
-import { expect, test as base, type Locator, type Page } from "@playwright/test";
+import { expect, test as base, type Browser, type Locator, type Page } from "@playwright/test";
 
 export const ADMIN = {
   email: process.env.E2E_ADMIN_EMAIL ?? "e2e-admin@weakless.pro",
@@ -13,6 +13,7 @@ export type Api = <T = any>(method: string, path: string, body?: unknown, org?: 
  */
 export const test = base.extend<{ api: Api; org: { id: string; name: string } }>({
   api: async ({ page }, use) => {
+    page.on("dialog", (d) => d.accept()); // confirm() prompts are answered "yes", as the person intends
     const login = await page.request.post("/api/v1/auth/login", { data: ADMIN });
     expect(login.ok(), await login.text()).toBeTruthy();
     const { csrf_token } = await login.json();
@@ -35,6 +36,39 @@ export const test = base.extend<{ api: Api; org: { id: string; name: string } }>
 });
 
 export { expect };
+
+export const PASSWORD = "Client-Passw0rd-123";
+
+/** A separate browser session (its own cookies), optionally signed in as `email`. */
+export async function newSession(browser: Browser, email?: string, password = PASSWORD): Promise<Page> {
+  const use = test.info().project.use;
+  const ctx = await browser.newContext({ baseURL: use.baseURL, viewport: use.viewport ?? undefined });
+  const p = await ctx.newPage();
+  p.on("dialog", (d) => d.accept());
+  if (email) {
+    const r = await p.request.post("/api/v1/auth/login", { data: { email, password } });
+    expect(r.ok(), await r.text()).toBeTruthy();
+  }
+  return p;
+}
+
+export function uniqueEmail(prefix: string): string {
+  return `${prefix}.${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}@e2e-client.com`;
+}
+
+/** Choose the organization in the sidebar switcher. */
+export async function chooseOrg(page: Page, name: string) {
+  await page.getByLabel("Organization").selectOption({ label: name });
+}
+
+/** The smallest box around `title` that also contains a button: a catalog or package card. */
+export function cardFor(page: Page, title: Locator): Locator {
+  return page.locator("div").filter({ has: title }).filter({ has: page.getByRole("button") }).last();
+}
+
+export function navLinks(page: Page): Locator {
+  return page.getByRole("navigation", { name: "Main" }).getByRole("link");
+}
 
 export const MANUAL = { id: "trigger", type: "trigger.manual", name: "Manual Trigger", config: {}, position: { x: 120, y: 160 } };
 

@@ -81,11 +81,12 @@ export function Field({ label, hint, error, children, required, group }: {
       {required && <span className="text-primary" aria-hidden>*</span>}
     </span>
   );
-  const note = error ? <span className="mt-1 block text-xs text-danger">{error}</span> : hint ? <span className="mt-1 block text-xs text-muted/80">{hint}</span> : null;
+  const note = error ? <span className="mt-1 block text-xs text-danger" role="alert">{error}</span> : hint ? <span className="mt-1 block text-xs text-muted/80">{hint}</span> : null;
   if (group) {
     return <div role="group" aria-labelledby={id} className="block">{caption}{children}{note}</div>;
   }
-  return <label className="block">{caption}{children}{note}</label>;
+  // Hint and error stay outside the <label>, so the control's accessible name is just the caption.
+  return <div className="block"><label className="block">{caption}{children}</label>{note}</div>;
 }
 
 /* ------------------------------------------------------------------ layout */

@@ -2,7 +2,7 @@
 
 Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 
-**TESTED** means automated tests exist and passed on the last run (70 backend tests on SQLite, 2026-11-12). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: the workflow builder has Playwright browser tests (passing locally in Edge, 2026-11-12; not yet run in CI). Other screens typecheck, build and were smoke-tested against a running backend.
+**TESTED** means automated tests exist and passed on the last run (70 backend tests on SQLite, 2026-11-12). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 15 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, and that every main screen opens (passing 45/45 over three repeats in Edge, 2026-11-12). Screens are not checked for visual design.
 
 | # | Module | Backend | Frontend | Notes |
 |---|---|---|---|---|
@@ -26,7 +26,7 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 | - | Documentation | IMPLEMENTED | | README and six WAE_* documents |
 
 ## Not started
-- Browser tests for screens other than the builder
+- Browser tests for billing, notifications channels, audit filters and analytics filters
 - WebSocket live updates (polling is used)
 - Vector / semantic knowledge search
 - Mailbox polling for the Email trigger; native database change listeners

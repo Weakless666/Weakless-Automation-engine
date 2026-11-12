@@ -19,7 +19,9 @@ function PackageDialog({ id, onClose }: { id: string | null; onClose: () => void
   const pkg = useQuery({ queryKey: ["package", id], queryFn: () => api(`/industry-packages/${id}`, { org: false }), enabled: !!id });
   const installed = useQuery({ queryKey: [key, "installed"], queryFn: () => api<Page<any>>("/installed-templates", { params: { limit: 200 } }), enabled: !!id && !!org });
   const have = new Set((installed.data?.items ?? []).map((i) => i.template_id));
-  useEffect(() => { if (pkg.data) { setSelected(pkg.data.templates.filter((t: any) => !have.has(t.id)).map((t: any) => t.id)); setResult(null); } }, [pkg.data, installed.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A new package opens fresh; background refreshes only update the selection and never hide a finished install.
+  useEffect(() => { setResult(null); setBusinessName(""); }, [id]);
+  useEffect(() => { if (pkg.data) setSelected(pkg.data.templates.filter((t: any) => !have.has(t.id)).map((t: any) => t.id)); }, [pkg.data, installed.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const allowed = !!org && can("templates.install") && (isStaff || org.mode === "saas");
   const install = useMutation({
     mutationFn: () => api<{ installed: any[] }>(`/industry-packages/${id}/install`, { method: "POST", body: { template_ids: selected, config: businessName ? { business_name: businessName } : {} } }),
