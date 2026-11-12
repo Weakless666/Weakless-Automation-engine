@@ -133,3 +133,20 @@ export class BuilderPage {
     await expect(this.header).not.toContainText("Unsaved changes");
   }
 }
+
+/** One completed and one failed run, without any outbound network call (the failure is the SSRF guard). */
+export async function seedRuns(api: Api, orgId: string) {
+  const ok = await makeWorkflow(api, orgId, "Good flow", [MANUAL, { id: "x", type: "logic.transform", name: "Shape", config: { fields: { a: 1 } }, position: { x: 400, y: 160 } }],
+    [{ source: "trigger", target: "x", source_handle: "out" }]);
+  const bad = await makeWorkflow(api, orgId, "Bad flow", [MANUAL, { id: "call", type: "action.http_request", name: "Call partner", config: { url: "http://localhost:9/blocked" }, position: { x: 400, y: 160 } }],
+    [{ source: "trigger", target: "call", source_handle: "out" }]);
+  const ids: string[] = [];
+  for (const wf of [ok, bad]) {
+    await api("POST", `/workflows/${wf}/publish`, {}, orgId);
+    ids.push((await api("POST", `/workflows/${wf}/execute`, { input: {} }, orgId)).id);
+  }
+  for (const id of ids) {
+    await expect.poll(async () => (await api("GET", `/executions/${id}`, undefined, orgId)).status, { timeout: 20_000 }).toMatch(/COMPLETED|FAILED/);
+  }
+  return { ok, bad, okRun: ids[0], badRun: ids[1] };
+}

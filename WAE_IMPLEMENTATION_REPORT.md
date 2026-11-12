@@ -95,7 +95,7 @@ Relative to the brief:
 - **Upload File** - text content only; no binary uploads.
 - **Authentication** - no MFA or SSO. (Password reset and invitations were added on 2026-11-12; their emails are untested against a real SMTP server.)
 - **API** - response schemas are not typed in OpenAPI.
-- **Testing** - 15 browser tests cover the main user journeys (added 2026-11-12), but not billing, notification channels or analytics filters; no OAuth flow tests; no load tests.
+- **Testing** - 22 browser tests cover the main user journeys on every screen (added 2026-11-12); not covered: sending real notifications, OAuth flows, Stripe checkout, load.
 - **Rate limiting** - per process, not shared across instances.
 - **Per-step hard timeouts** - enforced between steps and by client timeouts, not by interrupting a running step.
 - **Data retention** - no clean-up jobs for logs and events.

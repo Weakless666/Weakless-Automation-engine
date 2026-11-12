@@ -37,7 +37,7 @@ Ordered by how much risk each item removes.
 8. Configure Stripe in test mode: one checkout, one webhook delivery.
 
 ### 3. Close product gaps
-9. ~~Browser end-to-end tests for the builder, members, templates and agents~~ (done 2026-11-12); extend to billing and notifications.
+9. ~~Browser end-to-end tests for every main screen~~ (done 2026-11-12).
 10. ~~Password reset and email invitations~~ (done 2026-11-12); MFA for staff.
 11. Typed response models so OpenAPI documents responses.
 12. Live execution updates over WebSocket or SSE if polling proves too slow.

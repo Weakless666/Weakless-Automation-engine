@@ -89,12 +89,14 @@ cd frontend && npm run e2e       # browser tests of the workflow builder (below)
 
 ### 4. Browser tests
 
-`npm run e2e` (in `frontend/`) runs 15 Playwright tests that use the app like a person would:
+`npm run e2e` (in `frontend/`) runs 22 Playwright tests that use the app like a person would:
 - **Builder:** create, add and drag-connect steps, configure, save, reload, test-run, publish, activate; validation; duplicate/delete; switch outputs; concurrent edits.
 - **Accounts:** invite a member and accept as them in a separate browser; staff reset link; forgot password; generic sign-in error.
 - **Templates:** preview, install, configure; install an industry package.
 - **Agents:** create, configure, add a scoped tool and require approval; the honest error without an AI key; knowledge base add and search.
-- **Platform:** an integration is tested, never shows its secret, and is revoked; a client member sees only what their role allows; every main screen opens without an error. It starts its own throwaway API on port 8100 (fresh `backend/e2e.db`, fixed test-only secrets, its own admin) and a production build of the web app on port 3100, so it never touches your development data and can run while the dev servers are up.
+- **Platform:** an integration is tested, never shows its secret, and is revoked; a client member sees only what their role allows; every main screen opens without an error.
+- **Insights:** analytics from real runs and the automation filter; creating and applying plans, scheduled downgrades, client upgrade requests that never charge; audit filters.
+- **Operations:** filter executions, read the failing step and retry; resume a waiting run; notifications inbox, preferences and channels; inviting a staff member; the platform settings never show secrets. It starts its own throwaway API on port 8100 (fresh `backend/e2e.db`, fixed test-only secrets, its own admin) and a production build of the web app on port 3100, so it never touches your development data and can run while the dev servers are up.
 
 - **Windows:** uses the installed Microsoft Edge; nothing to download. The backend virtual environment must exist (`backend/.venv`).
 - **macOS / Linux / CI:** run `npx playwright install chromium` once. Set `E2E_PYTHON` if `python` is not the interpreter with the backend requirements.

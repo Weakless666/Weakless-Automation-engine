@@ -62,13 +62,14 @@ function BillingInner() {
   const key = useOrgKey();
   const qc = useQueryClient();
   const checkout = useSearchParams().get("checkout");
-  const [tab, setTab] = useState<"usage" | "plans" | "history">(org ? "usage" : "plans");
+  // null = the first tab available for the current selection, so choosing an organization later shows its usage.
+  const [chosen, setTab] = useState<"usage" | "plans" | "history" | null>(null);
   const [editing, setEditing] = useState<any | null | undefined>(undefined);
   const [outcome, setOutcome] = useState<string | null>(null);
   const sub = useQuery({ queryKey: [key, "subscription"], queryFn: () => api("/billing/subscription"), enabled: !!org && can("billing.read") });
   const usage = useQuery({ queryKey: [key, "usage"], queryFn: () => api("/usage"), enabled: !!org && can("billing.read") });
-  const history = useQuery({ queryKey: [key, "usage-history"], queryFn: () => api<{ items: any[] }>("/usage/history", { params: { months: 12 } }), enabled: !!org && tab === "history" });
-  const events = useQuery({ queryKey: [key, "billing-events"], queryFn: () => api<Page<any>>("/billing/events", { params: { limit: 30 } }), enabled: !!org && tab === "history" });
+  const history = useQuery({ queryKey: [key, "usage-history"], queryFn: () => api<{ items: any[] }>("/usage/history", { params: { months: 12 } }), enabled: !!org && chosen === "history" });
+  const events = useQuery({ queryKey: [key, "billing-events"], queryFn: () => api<Page<any>>("/billing/events", { params: { limit: 30 } }), enabled: !!org && chosen === "history" });
   const plans = useQuery({ queryKey: ["plans"], queryFn: () => api<{ items: any[] }>("/billing/plans", { org: false }) });
   const refresh = () => qc.invalidateQueries({ queryKey: [key] });
   const change = useMutation({ mutationFn: (plan: string) => api("/billing/change-plan", { method: "POST", body: { plan } }),
@@ -82,13 +83,14 @@ function BillingInner() {
   const manage = can("billing.manage");
   const managePlans = can("platform.plans.manage");
   const tabs = [...(org ? [{ key: "usage" as const, label: "Usage" }] : []), { key: "plans" as const, label: "Plans" }, ...(org ? [{ key: "history" as const, label: "History" }] : [])];
+  const tab = chosen && tabs.some((t) => t.key === chosen) ? chosen : tabs[0].key;
   const current = sub.data?.plan;
   return (
     <>
       <PageHeader title="Usage & Billing" description={org ? `Plan, quotas and metered usage for ${org.name}.` : "Subscription plans available on the platform."} />
       {checkout && <div className="mb-4"><Notice tone={checkout === "success" ? "success" : "warning"}>{checkout === "success" ? "Checkout completed. The plan updates as soon as the payment provider confirms it." : "Checkout was cancelled. Nothing was charged."}</Notice></div>}
       {outcome && <div className="mb-4"><Notice tone="success">{outcome}</Notice></div>}
-      <Tabs tabs={tabs} value={tabs.some((t) => t.key === tab) ? tab : tabs[0].key} onChange={setTab} />
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
       {tab === "usage" && org && (sub.isLoading || usage.isLoading ? <Spinner /> : sub.error || usage.error ? <ErrorState error={sub.error ?? usage.error} /> : (
         <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
