@@ -21,7 +21,7 @@ function Step({ s }: { s: any }) {
         <span className="tabular w-6 text-xs text-muted">{s.sequence}</span>
         <span className="w-24 shrink-0"><StatusBadge status={s.status} /></span>
         <span className="min-w-0 flex-1"><span className="font-medium">{s.node_name || s.node_id}</span>
-          <span className="ml-2 font-mono text-xs text-muted">{s.node_type}{s.iteration ? ` [${s.iteration}]` : ""}{s.attempt > 1 ? ` attempt ${s.attempt}` : ""}</span></span>
+          <span className="ml-2 break-all font-mono text-xs text-muted max-sm:ml-0 max-sm:block">{s.node_type}{s.iteration ? ` [${s.iteration}]` : ""}{s.attempt > 1 ? ` attempt ${s.attempt}` : ""}</span></span>
         <span className="tabular text-xs text-muted">{fmtDuration(s.duration_ms)}</span>
       </button>
       {open && (

@@ -9,7 +9,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import clsx from "clsx";
-import { AlertTriangle, ArrowLeft, Check, Copy, FlaskConical, History, Play, Rocket, Save, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Copy, FlaskConical, History, Play, Plus, Rocket, Save, Search, Trash2, X } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useLocateOrg, useOrgKey, useSession } from "@/lib/session";
 import { fmtDate, fmtDuration, fmtRelative } from "@/lib/format";
@@ -61,11 +61,17 @@ const FlowNode = memo(function FlowNode({ id, data, selected }: NodeProps<WaeNod
 
 const nodeTypes = { wae: FlowNode };
 
-function Palette({ specs, onAdd }: { specs: NodeSpec[]; onAdd: (s: NodeSpec) => void }) {
+function Palette({ specs, onAdd, open, onClose }: { specs: NodeSpec[]; onAdd: (s: NodeSpec) => void; open: boolean; onClose: () => void }) {
   const [q, setQ] = useState("");
   const shown = specs.filter((s) => !q || `${s.label} ${s.description}`.toLowerCase().includes(q.toLowerCase()));
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r bg-surface">
+    // A column on large screens; on phones and tablets a drawer opened with "Add step".
+    <aside aria-label="Steps" className={clsx("flex w-60 shrink-0 flex-col border-r bg-surface",
+      open ? "max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-40 max-lg:w-72 max-lg:max-w-[85vw] max-lg:shadow-2xl" : "max-lg:hidden")}>
+      <div className="flex items-center justify-between border-b px-3 py-2 lg:hidden">
+        <span className="text-sm font-medium">Add a step</span>
+        <button type="button" onClick={onClose} aria-label="Close steps" className="rounded-md p-1.5 text-muted hover:bg-raised hover:text-fg"><X className="h-4 w-4" /></button>
+      </div>
       <div className="border-b p-2.5">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted" aria-hidden />
@@ -315,6 +321,7 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
   const [nodes, setNodes, onNodesChange] = useNodesState<WaeNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
   const [selected, setSelected] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<null | "steps" | "details">(null); // small screens: which overlay is open
   const [dirty, setDirty] = useState(false);
   const [differs, setDiffers] = useState<boolean>(Boolean(workflow.has_unpublished_changes));
   useEffect(() => setDiffers(Boolean(workflow.has_unpublished_changes)), [workflow.has_unpublished_changes, workflow.published_version]);
@@ -410,18 +417,18 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
 
   return (
     <Ctx.Provider value={ctx}>
-      <div className="flex h-screen flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b bg-surface px-4">
+      <div className="flex h-full flex-col">
+        <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b bg-surface px-4 py-2">
           <Link href="/automations" className="rounded-md p-1.5 text-muted hover:bg-raised hover:text-fg" aria-label="Back to automations"><ArrowLeft className="h-4 w-4" /></Link>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1 lg:flex-none">
             <div className="truncate text-sm font-semibold">{workflow.name}</div>
-            <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wider text-muted">
+            <div className="flex flex-wrap items-center gap-1.5 text-2xs uppercase tracking-wider text-muted">
               {workflow.published_version ? `Published v${workflow.published_version}` : "Never published"}
               {workflow.is_active ? <Badge tone="success">Active</Badge> : <Badge>Inactive</Badge>}
               {dirty ? <Badge tone="warning">Unsaved changes</Badge> : differs && workflow.published_version && <Badge tone="info">Draft differs from live</Badge>}
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {errors > 0 && <button type="button" onClick={() => setSelected(null)} className="flex items-center gap-1 text-xs text-danger hover:underline"><AlertTriangle className="h-3.5 w-3.5" /> {errors} {errors === 1 ? "error" : "errors"}</button>}
             <Link href={`/executions?workflow_id=${workflow.id}`}><Button size="sm" variant="ghost"><History className="h-3.5 w-3.5" /> History</Button></Link>
             <Button size="sm" loading={saveMut.isPending} disabled={!dirty} onClick={() => saveMut.mutate()}><Save className="h-3.5 w-3.5" /> Save draft</Button>
@@ -435,8 +442,13 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
             {failure ? errorMessage(failure) : message!.text}
           </div>
         )}
-        <div className="flex min-h-0 flex-1">
-          <Palette specs={specs} onAdd={addNode} />
+        <div className="flex shrink-0 gap-2 border-b bg-surface px-4 py-2 lg:hidden">
+          <Button size="sm" onClick={() => setSheet("steps")}><Plus className="h-3.5 w-3.5" /> Add step</Button>
+          <Button size="sm" variant="ghost" onClick={() => setSheet("details")}>Workflow details{errors > 0 ? ` (${errors})` : ""}</Button>
+        </div>
+        <div className="relative flex min-h-0 flex-1">
+          {sheet === "steps" && <div className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setSheet(null)} aria-hidden />}
+          <Palette specs={specs} open={sheet === "steps"} onClose={() => setSheet(null)} onAdd={(s) => { addNode(s); setSheet(null); }} />
           <div className="min-w-0 flex-1">
             <ReactFlow
               nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ maxZoom: 1, padding: 0.3 }} minZoom={0.2} colorMode="dark"
@@ -449,10 +461,17 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
             >
               <Background gap={20} color="rgb(40 37 58)" />
               <Controls showInteractive={false} />
-              <MiniMap pannable zoomable nodeColor={(n) => `rgb(${CATEGORY[specMap[(n.data as any).type]?.category ?? "action"].color})`} maskColor="rgb(11 10 16 / 0.7)" />
+              <MiniMap className="max-sm:!hidden" pannable zoomable nodeColor={(n) => `rgb(${CATEGORY[specMap[(n.data as any).type]?.category ?? "action"].color})`} maskColor="rgb(11 10 16 / 0.7)" />
             </ReactFlow>
           </div>
-          <aside className="w-[360px] shrink-0 overflow-y-auto border-l bg-surface">
+          {/* A side column on large screens; on smaller ones a bottom sheet for the selected step or the workflow. */}
+          <aside className={clsx("w-[360px] shrink-0 overflow-y-auto border-l bg-surface",
+            sel || sheet === "details" ? "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:max-h-[70dvh] max-lg:w-full max-lg:rounded-t-xl max-lg:border-l-0 max-lg:border-t max-lg:shadow-2xl" : "max-lg:hidden")}>
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-surface px-4 py-2 lg:hidden">
+              <span className="text-sm font-medium">{sel ? "Step settings" : "Workflow details"}</span>
+              <button type="button" aria-label="Close panel" className="rounded-md p-1.5 text-muted hover:bg-raised hover:text-fg"
+                onClick={() => { setSheet(null); setNodes((ns) => ns.map((n) => ({ ...n, selected: false }))); setSelected(null); }}><X className="h-4 w-4" /></button>
+            </div>
             {sel ? (
               <NodePanel node={sel} spec={specMap[sel.data.type]} issues={issues.filter((i) => i.node_id === sel.id)} triggers={triggers} workflowId={workflow.id}
                 onChange={(p) => patchNode(sel.id, p)} onDelete={() => removeNode(sel.id)} onDuplicate={() => duplicate(sel.id)}

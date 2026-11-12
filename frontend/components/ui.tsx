@@ -105,7 +105,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
 
 export function Card({ className, children, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={clsx("rounded-lg border bg-surface", className)} {...rest}>
+    <div className={clsx("min-w-0 rounded-lg border bg-surface", className)} {...rest}>
       {children}
     </div>
   );

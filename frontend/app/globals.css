@@ -33,6 +33,13 @@ body {
   @apply border-line;
 }
 
+/* Grid and flex items default to min-width:auto, so a wide table or code block inside them pushes
+   the whole page sideways on small screens. Let them shrink; wide content scrolls in its own box. */
+.grid > *,
+.flex > .flex-1 {
+  min-width: 0;
+}
+
 :focus-visible {
   outline: 2px solid rgb(var(--primary) / 0.7);
   outline-offset: 1px;
