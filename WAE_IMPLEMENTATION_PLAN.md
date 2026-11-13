@@ -28,7 +28,7 @@ Ordered by how much risk each item removes.
 1. Run `docker compose up --build` on a machine with Docker; fix whatever the first real build reveals.
 2. ~~Run the migrations on PostgreSQL and the cross-tenant checks as a non-superuser role~~ (done 2026-11-12: `tests/test_rls.py`, locally and in CI).
 3. ~~Run the backend test suite against PostgreSQL with parallel workers~~ (done 2026-11-12: `WAE_TEST_DATABASE_URL`, four-worker queue test).
-4. Push to GitHub and get the CI workflow green.
+4. ~~Push to GitHub and get the CI workflow green~~ (green since the first run).
 
 ### 2. Verify against real providers
 5. Set a platform Anthropic key and run an agent and each AI node type once. Confirm the refusal-fallback beta parameter is accepted by the account; if not, switch it off under Settings -> Platform.
@@ -43,6 +43,13 @@ Ordered by how much risk each item removes.
 12. Live execution updates over WebSocket or SSE if polling proves too slow.
 13. Vector search for knowledge bases once an embedding provider is chosen.
 14. ~~Mailbox polling for clients who cannot use inbound-parse webhooks~~ (done 2026-11-13: Mailbox Trigger over IMAP; next, try it against Gmail and Microsoft 365 with real accounts).
+
+### 3b. AI Marketing Team (from 2026-11-13)
+- ~~Phase 1: lead agent delegating to nine specialists, content calendar with approval, team board, weekly plan/newsletter/review workflows, lead intake~~ (done 2026-11-13, package "AI Marketing Team").
+- Phase 2: native publishing for the channels a client uses, replacing "notify a person to post" in the Publish Approved Content workflow. LinkedIn (`w_member_social`, already an OAuth integration), Instagram and Facebook (Meta Graph API, app review for `instagram_content_publish`), YouTube (Data API upload, Google OAuth), TikTok (Content Posting API, requires TikTok's app audit before public posts). Each needs a developer app and test accounts from the business.
+- Phase 3: Creative Studio - AI images, voice and short video from the media brief, once providers are chosen (keys from the business); results attached to the calendar item for approval.
+- Phase 4: real performance data in the Analytics Loop (post insights from the connected networks, Stripe revenue, CRM pipeline) instead of what people record in the calendar.
+- Live trend data for the Trend Spotter and Keyword Finder needs a search or trends API key; today they work from the playbook and the team's past results and say so.
 
 ### 4. Scale-out
 15. ~~Shared rate limiting when running more than one API instance~~ (done 2026-11-12 in the database, no Redis; the general per-client budget stays per process).

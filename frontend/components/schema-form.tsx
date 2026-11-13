@@ -126,10 +126,12 @@ function Control({ name, schema, value, onChange, ctx, res }: { name: string; sc
 
   if (s.title === "ConditionGroup" || (s.properties?.conditions && s.properties?.combinator)) return <ConditionGroup value={value} onChange={onChange} />;
   if (name === "integration_id" || s["x-integration"]) return <IntegrationSelect value={value ?? ""} onChange={(v) => onChange(v || undefined)} providers={integrationProviders} integrations={res.integrations} />;
-  if (name === "agent_id") {
+  if (name === "agent_id" || s["x-agent"]) {
+    const isVar = typeof value === "string" && value.includes("{{");
     return (
-      <Select value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
+      <Select value={isVar ? "__var" : value ?? ""} onChange={(e) => onChange(e.target.value === "__var" ? value : e.target.value || undefined)}>
         <option value="">Select an agent...</option>
+        {isVar && <option value="__var">Variable: {value}</option>}
         {res.agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
       </Select>
     );

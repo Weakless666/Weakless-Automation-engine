@@ -253,7 +253,15 @@ def package_view(ctx: Ctx, p: IndustryPackage, full: bool = False) -> dict:
     items = ctx.db.execute(select(IndustryPackageItem, AutomationTemplate).join(AutomationTemplate, AutomationTemplate.id == IndustryPackageItem.template_id)
                            .where(IndustryPackageItem.package_id == p.id).order_by(IndustryPackageItem.position)).all()
     out = {"id": str(p.id), "key": p.key, "name": p.name, "description": p.description, "industry": p.industry, "pricing": p.pricing or {},
-           "status": p.status, "template_count": len(items)}
+           "status": p.status, "template_count": len(items), "team": None}
+    if p.team_key:
+        from app.templates.teams import TEAMS
+
+        team = TEAMS.get(p.team_key)
+        if team:
+            out["team"] = {"key": team["key"], "name": team["name"], "config_schema": team["config_schema"],
+                           "members": [{"key": m["key"], "name": m["name"], "module": m["module"] or "Lead", "description": m["description"]}
+                                       for m in [team["lead"], *team["members"]]]}
     if full:
         out["templates"] = [{**template_view(t), "is_required": item.is_required, "position": item.position} for item, t in items]
     else:
@@ -343,4 +351,11 @@ def install_package(package_id: str, body: PackageInstall | None = None, ctx: Ct
     installed = service.install_package(ctx.db, ctx.org_id, p, ctx.user.id, ids, body.config)
     audit(ctx.db, "package.installed", ctx=ctx, resource_type="package", resource_id=p.id, meta={"key": p.key, "installed": len(installed)})
     ctx.db.commit()
-    return {"installed": [installed_view(ctx, i) for i in installed]}
+    out: dict = {"installed": [installed_view(ctx, i) for i in installed]}
+    if p.team_key:
+        from app.models import AIAgent
+
+        agents = ctx.db.scalars(select(AIAgent).where(AIAgent.organization_id == ctx.org_id, AIAgent.team_key == p.team_key,
+                                                      AIAgent.deleted_at.is_(None))).all()
+        out["team"] = {"key": p.team_key, "agents": [{"id": str(a.id), "name": a.name, "module": a.team_module, "lead": a.team_lead} for a in agents]}
+    return out

@@ -369,6 +369,52 @@ def text_extraction(event: str, fields: list[tuple[str, str]], table_title: str)
     return _result({"nodes": nodes, "edges": [_e("trigger", "extract"), _e("extract", "store")]}, props, ["data_integration", "table"], ["database"], ["AI provider"])
 
 
+# ----------------------------------------------------------------------------- AI team patterns
+
+
+def _member(title: str) -> dict:
+    """A workflow variable holding one AI team member's agent id (filled in when the team is installed)."""
+    return {"type": "string", "title": title, "x-agent": True}
+
+
+def team_routine(cron: str, member: str, member_title: str, prompt: str, report_title: str) -> dict:
+    """Schedule (UTC) -> one team member works -> the result is reported to the organization."""
+    var = f"{member}_agent"
+    nodes = [
+        _n("trigger", "trigger.schedule", "Every week", {"cron": cron, "timezone": "UTC"}, 0),
+        _n("work", "ai.agent", member_title, {"agent_id": "{{ vars.%s }}" % var, "input": prompt}, 1),
+        _n("report", "action.send_notification", "Report to the team", {"title": report_title, "body": "{{ nodes.work.text | truncate(3000) }}"}, 2),
+    ]
+    return _result({"nodes": nodes, "edges": [_e("trigger", "work"), _e("work", "report")]}, {var: _member(member_title)}, [var], [], ["AI provider"])
+
+
+def content_ready() -> dict:
+    """content.due (an approved calendar item's time has come) -> hand it to a person to post."""
+    nodes = [
+        _n("trigger", "trigger.app_event", "Approved content is due", {"event_type": "content.due"}, 0),
+        _n("notify", "action.send_notification", "Ask a person to publish",
+           {"title": "Ready to publish on {{ nodes.trigger.data.channel }}: {{ nodes.trigger.data.title }}",
+            "body": "{{ nodes.trigger.data.body | truncate(2500) }}\n\nMedia brief: {{ nodes.trigger.data.media_notes | default('none') }}\n\n"
+                    "After posting it, mark it as published in the Content calendar.", "severity": "info"}, 1),
+    ]
+    return _result({"nodes": nodes, "edges": [_e("trigger", "notify")]}, {}, [], [])
+
+
+def lead_intake() -> dict:
+    """Website form -> Lead Scorer agent (score + first reply draft) -> alert on hot leads."""
+    nodes = [
+        _n("trigger", "trigger.form", "Website enquiry", {"required_fields": ["email"]}, 0),
+        _n("score", "ai.agent", "Lead Scorer", {"agent_id": "{{ vars.lead_scorer_agent }}",
+                                                "input": "New enquiry from the website form:\n{{ nodes.trigger.body | json }}",
+                                                "conversation_ref": "{{ nodes.trigger.body.email }}"}, 1),
+        _n("hot", "logic.if", "Hot lead?", {"condition": _cond("{{ nodes.score.text }}", "starts_with", "HOT")}, 2),
+        _n("alert", "action.send_notification", "Alert the team",
+           {"title": "Hot lead: {{ nodes.trigger.body.email }}", "body": "{{ nodes.score.text | truncate(2500) }}", "severity": "success"}, 3),
+    ]
+    edges = [_e("trigger", "score"), _e("score", "hot"), _e("hot", "alert", "true")]
+    return _result({"nodes": nodes, "edges": edges}, {"lead_scorer_agent": _member("Lead Scorer")}, ["lead_scorer_agent"], [], ["AI provider"])
+
+
 # ----------------------------------------------------------------------------- library
 
 _SETUP = ("1. Connect the required integrations under Integrations.\n2. Install the template and fill in its configuration.\n"
@@ -491,6 +537,28 @@ TEMPLATES: list[dict] = [
     _t("ops-daily-digest", "Daily Operations Digest", "Operations", None, "Emails an AI summary of your operations data every morning.",
        scheduled_report("Daily operations digest", "0 7 * * *", "Summarise what needs attention today.")),
     _t("custom-webhook-relay", "Webhook Relay", "Custom Integrations", None, "Receives a webhook, reshapes the payload and forwards it to another API.", relay("Inbound")),
+    # AI Marketing Team (installed with the team: the *_agent variables are filled in automatically)
+    _t("mkt-weekly-plan", "Weekly Content Plan", "Marketing", "marketing",
+       "Every Monday the Marketing Director briefs the specialists and fills the content calendar for approval.",
+       team_routine("0 7 * * 1", "director", "Marketing Director",
+                    "A new week starts ({{ nodes.trigger.scheduled_for }}). Check the playbook and last week's learnings, then plan this week's "
+                    "content: get themes from the Trend Spotter, the audience's questions from the Audience Researcher and phrases from the "
+                    "Keyword Finder, then have the Post Writer and SEO Writer put the pieces in the calendar for approval. Summarise the plan.",
+                    "This week's content plan is ready for approval")),
+    _t("mkt-newsletter", "Weekly Newsletter Draft", "Marketing", "marketing",
+       "Every Wednesday the Email Writer drafts the newsletter and puts it in the calendar for approval.",
+       team_routine("0 9 * * 3", "email_writer", "Email Writer",
+                    "Draft this week's newsletter from the playbook and this week's calendar. Schedule it for Thursday 09:00 UTC.",
+                    "Newsletter draft ready for approval")),
+    _t("mkt-content-ready", "Publish Approved Content", "Marketing", "marketing",
+       "When approved content is due, sends it to the team ready to post, with the media brief.", content_ready()),
+    _t("mkt-lead-intake", "Lead Intake and Scoring", "Marketing", "marketing",
+       "Scores website enquiries with the Lead Scorer, drafts the first reply and alerts the team about hot leads.", lead_intake()),
+    _t("mkt-weekly-review", "Weekly Performance Review", "Marketing", "marketing",
+       "Every Friday the Performance Analyst reviews the week and saves learnings that shape next week's plan.",
+       team_routine("0 15 * * 5", "analyst", "Performance Analyst",
+                    "Review the past 7 days of the content calendar and record what the team should repeat, drop and test next.",
+                    "Weekly marketing review")),
 ]
 
 PACKAGES: list[dict] = [
@@ -517,6 +585,10 @@ PACKAGES: list[dict] = [
      "description": "Onboarding, lead management, proposals, notifications and reporting for agencies.",
      "templates": ["agency-client-onboarding", "agency-lead-management", "agency-proposal-generation", "agency-project-notifications",
                    "agency-reporting", "agency-client-followups"]},
+    {"key": "ai-marketing-team", "name": "AI Marketing Team", "industry": "marketing", "team": "marketing",
+     "description": "A Marketing Director agent that briefs nine specialists (research, posts, email, SEO, leads, booking, analytics), "
+                    "a content calendar where you approve every piece before it goes out, and a weekly plan-publish-review rhythm.",
+     "templates": ["mkt-weekly-plan", "mkt-newsletter", "mkt-content-ready", "mkt-lead-intake", "mkt-weekly-review"]},
 ]
 
 CATEGORIES = ["Customer Support", "Sales", "Marketing", "Finance", "HR", "Operations", "E-commerce", "Hospitality", "Restaurants",

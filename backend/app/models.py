@@ -25,6 +25,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -483,6 +484,7 @@ class IndustryPackage(Base, Timestamps):
     industry: Mapped[str] = mapped_column(String(80), nullable=False)
     pricing: Mapped[dict] = js()
     status: Mapped[str] = mapped_column(String(20), default="published", nullable=False)
+    team_key: Mapped[str | None] = mapped_column(String(60))  # an AI team (app/templates/teams.py) installed with the package
 
 
 class IndustryPackageItem(Base):
@@ -519,6 +521,9 @@ class AIAgent(Base, Timestamps):
     permissions: Mapped[dict] = js()
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
     deleted_at: Mapped[datetime | None] = ts()
+    team_key: Mapped[str | None] = mapped_column(String(60), index=True)  # agents installed together as a team, e.g. "marketing"
+    team_module: Mapped[str | None] = mapped_column(String(120))  # the team's section this agent belongs to, e.g. "Research & Content"
+    team_lead: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"), nullable=False)  # coordinates the team by delegating
 
 
 class AIAgentTool(Base, Timestamps):
@@ -571,6 +576,8 @@ class AIAgentExecution(Base, Timestamps):
     conversation_id: Mapped[uuid.UUID | None] = fk("ai_conversations.id", nullable=True, ondelete="SET NULL")
     workflow_execution_id: Mapped[uuid.UUID | None] = fk("workflow_executions.id", nullable=True, ondelete="SET NULL")
     workflow_node_key: Mapped[str | None] = mapped_column(String(64))  # node to resume when a paused agent finishes
+    parent_execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ai_agent_executions.id", ondelete="SET NULL"), index=True)  # set when another agent delegated this task
     kind: Mapped[str] = mapped_column(String(30), default="agent", nullable=False)  # agent | completion
     status: Mapped[str] = mapped_column(String(20), default="RUNNING", nullable=False)
     provider: Mapped[str | None] = mapped_column(String(40))
@@ -584,6 +591,42 @@ class AIAgentExecution(Base, Timestamps):
     pending: Mapped[dict | None] = mapped_column(JSONType)  # tool calls awaiting human approval
     error: Mapped[str | None] = mapped_column(Text)
     finished_at: Mapped[datetime | None] = ts()
+
+
+CONTENT_CHANNELS = ("linkedin", "instagram", "facebook", "tiktok", "youtube", "x", "blog", "newsletter", "email", "other")
+CONTENT_STATUSES = ("idea", "draft", "awaiting_approval", "approved", "published", "rejected", "failed")
+
+
+class ContentItem(Base, Timestamps):
+    """Content calendar entry. Agents propose (``awaiting_approval``); a person approves or rejects; at
+    ``scheduled_for`` an approved item emits the ``content.due`` application event, which a publishing
+    workflow handles and reports back (``published`` / ``failed``)."""
+
+    __tablename__ = "content_items"
+    __table_args__ = (
+        CheckConstraint(_in("status", CONTENT_STATUSES), name="status"),
+        CheckConstraint(_in("channel", CONTENT_CHANNELS), name="channel"),
+        Index("ix_content_items_org_scheduled", "organization_id", "scheduled_for"),
+        Index("ix_content_items_due", "status", "scheduled_for"),
+    )
+    id: Mapped[uuid.UUID] = pk()
+    organization_id: Mapped[uuid.UUID] = org_fk()
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    body: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    media_notes: Mapped[str] = mapped_column(Text, default="", nullable=False)  # visual/video brief for whoever produces the media
+    hashtags: Mapped[list] = js(list)
+    scheduled_for: Mapped[datetime | None] = ts()
+    status: Mapped[str] = mapped_column(String(20), default="awaiting_approval", nullable=False)
+    created_by_agent_id: Mapped[uuid.UUID | None] = fk("ai_agents.id", nullable=True, ondelete="SET NULL", index=False)
+    created_by: Mapped[uuid.UUID | None] = fk("users.id", nullable=True, ondelete="SET NULL", index=False)
+    decided_by: Mapped[uuid.UUID | None] = fk("users.id", nullable=True, ondelete="SET NULL", index=False)
+    decided_at: Mapped[datetime | None] = ts()
+    decision_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    due_emitted_at: Mapped[datetime | None] = ts()
+    published_at: Mapped[datetime | None] = ts()
+    published_url: Mapped[str | None] = mapped_column(String(1000))
+    meta: Mapped[dict] = js()  # campaign, keywords, source notes
 
 
 class KnowledgeBase(Base, Timestamps):
@@ -943,4 +986,5 @@ TENANT_TABLES = (
     "approval_requests", "notification_channels", "subscriptions", "usage_records", "generated_documents",
     "app_event_subscriptions", "usage_counters",  # 0006
     "mailbox_watches",  # 0008
+    "content_items",  # 0009
 )

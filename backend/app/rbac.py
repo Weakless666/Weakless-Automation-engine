@@ -55,13 +55,17 @@ PERMISSIONS: dict[str, str] = {
     "notifications.manage": "Manage organization notification channels",
     "audit.read": "View the organization audit log",
     "approvals.decide": "Approve or reject pending approvals",
+    "content.read": "View the content calendar",
+    "content.write": "Create and edit content calendar items",
+    "content.approve": "Approve or reject content before it is published",
 }
 
 _ALL = set(PERMISSIONS)
 _ORG_READ = {
     "org.read", "members.read", "workflows.read", "executions.read", "agents.read", "knowledge.read",
-    "integrations.read", "webhooks.read", "templates.read", "analytics.read", "billing.read",
+    "integrations.read", "webhooks.read", "templates.read", "analytics.read", "billing.read", "content.read",
 }
+_CONTENT = {"content.write", "content.approve"}
 
 ROLE_DEFAULTS: dict[str, tuple[str, set[str]]] = {
     "SUPER_ADMIN": ("Super Admin", _ALL),
@@ -69,13 +73,13 @@ ROLE_DEFAULTS: dict[str, tuple[str, set[str]]] = {
     "MANAGER": ("Manager", _ORG_READ | {
         "org.manage", "members.manage", "executions.manage", "templates.install", "billing.manage",
         "notifications.manage", "audit.read", "approvals.decide", "workflows.activate",
-        "platform.organizations.create", "platform.analytics.read",
+        "platform.organizations.create", "platform.analytics.read", *_CONTENT,
     }),
     "AUTOMATION_ENGINEER": ("Automation Engineer", _ORG_READ | {
         "workflows.write", "workflows.publish", "workflows.activate", "workflows.execute", "executions.manage",
         "agents.write", "agents.run", "knowledge.write", "integrations.manage", "webhooks.manage",
         "templates.install", "notifications.manage", "approvals.decide",
-        "platform.templates.manage", "platform.analytics.read",
+        "platform.templates.manage", "platform.analytics.read", *_CONTENT,
     }),
     "SALES": ("Sales", {"org.read", "org.manage", "members.read", "templates.read", "analytics.read", "billing.read",
                         "platform.organizations.create"}),
@@ -83,13 +87,13 @@ ROLE_DEFAULTS: dict[str, tuple[str, set[str]]] = {
     "CLIENT_ADMIN": ("Client Admin", _ORG_READ | {
         "org.manage", "members.manage", "workflows.activate", "workflows.execute", "agents.run", "knowledge.write",
         "integrations.manage", "templates.install", "billing.manage", "notifications.manage", "audit.read",
-        "approvals.decide",
+        "approvals.decide", *_CONTENT,
     }),
     "CLIENT_MEMBER": ("Client Member", {
         "org.read", "members.read", "workflows.read", "workflows.execute", "executions.read", "agents.read",
-        "agents.run", "knowledge.read", "integrations.read", "templates.read", "analytics.read",
+        "agents.run", "knowledge.read", "integrations.read", "templates.read", "analytics.read", "content.read", "content.write",
     }),
-    "VIEWER": ("Viewer", {"org.read", "workflows.read", "executions.read", "agents.read", "templates.read", "analytics.read"}),
+    "VIEWER": ("Viewer", {"org.read", "workflows.read", "executions.read", "agents.read", "templates.read", "analytics.read", "content.read"}),
 }
 
 _cache: dict[str, set[str]] = {}
@@ -119,12 +123,16 @@ def role_permissions(db: Session, role: str) -> set[str]:
 
 
 def seed_rbac(db: Session, reset_grants: bool = False) -> None:
-    """Insert missing roles/permissions. Existing grants are preserved unless ``reset_grants``."""
+    """Insert missing roles/permissions. Existing grants are preserved unless ``reset_grants``; a
+    permission that did not exist before is granted to the roles whose defaults include it, so
+    upgrades add new capabilities without undoing an administrator's changes to older ones."""
     perms = {p.key: p for p in db.scalars(select(Permission))}
+    added: set[str] = set()
     for key, desc in PERMISSIONS.items():
         if key not in perms:
             perms[key] = Permission(key=key, description=desc)
             db.add(perms[key])
+            added.add(key)
     roles = {r.key: r for r in db.scalars(select(Role))}
     new_roles = []
     for key, (name, _) in ROLE_DEFAULTS.items():
@@ -144,10 +152,10 @@ def seed_rbac(db: Session, reset_grants: bool = False) -> None:
                 db.delete(rp)
             existing = set()
             db.flush()
-        if key in new_roles or reset_grants or not existing:
-            for pkey in grants:
-                if perms[pkey].id not in existing:
-                    db.add(RolePermission(role_id=role.id, permission_id=perms[pkey].id))
+        to_grant = grants if (key in new_roles or reset_grants or not existing) else grants & added
+        for pkey in to_grant:
+            if perms[pkey].id not in existing:
+                db.add(RolePermission(role_id=role.id, permission_id=perms[pkey].id))
     db.flush()
     invalidate_cache()
 

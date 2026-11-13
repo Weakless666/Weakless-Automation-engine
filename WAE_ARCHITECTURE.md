@@ -77,7 +77,9 @@ Jobs are rows in `execution_queues`. Workers claim them atomically, heartbeat im
 - `providers.py` normalizes Anthropic (official SDK), OpenAI, OpenAI-compatible servers and Gemini behind one request/response shape. Nothing else in the codebase imports a vendor SDK.
 - `service.py` resolves credentials (organization integration, then platform key), applies a provider fallback chain, enforces the AI quota, meters tokens and estimates cost from an editable price table.
 - `agents.py` is a persisted tool-calling loop with conversation history, per-agent limits and human approval for selected tools.
-- `tools.py` is the only way an agent can act: nine controlled tools, each scoped by configuration (which integration, which domains, which workflow, which MCP tool). There are no shell, filesystem, database or payment tools.
+- `tools.py` is the only way an agent can act: thirteen controlled tools, each scoped by configuration (which integration, which domains, which workflow, which MCP tool, which team member, which channels). There are no shell, filesystem, database or payment tools.
+- **Teams** (`templates/teams.py`): a lead agent with one `delegate_to_<member>` tool per specialist. Delegation runs the member synchronously in a fresh conversation (only the task and the lead's context), with the member's own tools, approvals, limits and metering; `ai_agent_executions.parent_execution_id` records the chain, which is capped at two levels and may not revisit an agent. Members share a knowledge base (the playbook) that the analyst writes weekly learnings to, which closes the plan -> publish -> review loop.
+- **Content calendar** (`services/content.py`): agents propose items (`awaiting_approval`), people approve or reject, and an approved item emits `content.due` at its time for a publishing workflow, which reports `published`/`failed`. No agent can publish directly.
 - `mcp.py` is a Streamable HTTP MCP client (initialize, tools/list, tools/call). MCP tools are allowlisted one by one.
 - `knowledge.py` provides BM25 keyword retrieval. Vector search is not implemented; the `search()` function is the extension point.
 

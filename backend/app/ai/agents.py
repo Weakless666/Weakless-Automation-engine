@@ -86,8 +86,10 @@ def get_or_create_conversation(db: Session, agent: AIAgent, conversation_id=None
 
 
 def run_agent(db: Session, agent: AIAgent, user_input: str, *, conversation_id=None, external_ref: str | None = None,
-              workflow_execution_id: uuid.UUID | None = None, workflow_node_key: str | None = None) -> AIAgentExecution:
-    """Run the agent on one user message. Returns the execution (COMPLETED, FAILED or WAITING_APPROVAL)."""
+              workflow_execution_id: uuid.UUID | None = None, workflow_node_key: str | None = None,
+              parent_execution_id: uuid.UUID | None = None) -> AIAgentExecution:
+    """Run the agent on one user message. Returns the execution (COMPLETED, FAILED or WAITING_APPROVAL).
+    ``parent_execution_id`` marks a task delegated by another agent (see the delegate_to_agent tool)."""
     if agent.status != "active" or agent.deleted_at:
         raise NodeError("Agent is disabled", code="agent_disabled")
     _check_limits(db, agent)
@@ -96,6 +98,7 @@ def run_agent(db: Session, agent: AIAgent, user_input: str, *, conversation_id=N
         conv.title = user_input[:80]
     aexec = AIAgentExecution(organization_id=agent.organization_id, agent_id=agent.id, conversation_id=conv.id,
                              workflow_execution_id=workflow_execution_id, workflow_node_key=workflow_node_key,
+                             parent_execution_id=parent_execution_id,
                              kind="agent", status="RUNNING", provider=agent.provider, model=agent.model)
     db.add(aexec)
     _append(db, conv, "user", {"text": user_input})
@@ -105,6 +108,9 @@ def run_agent(db: Session, agent: AIAgent, user_input: str, *, conversation_id=N
 
 def _system_prompt(agent: AIAgent) -> str:
     parts = [agent.system_instructions.strip() or f"You are {agent.name}, an assistant for a business."]
+    if agent.team_lead:
+        parts.append("You lead a team. Give each specialist one clear task with the context they need, combine their results, "
+                     "and do the coordinating yourself. Do not ask a specialist to do another specialist's job.")
     parts.append("Only use the tools provided. If a tool call is rejected or fails, explain what happened instead of retrying blindly.")
     return "\n\n".join(parts)
 
@@ -138,7 +144,7 @@ def agent_output(aexec: AIAgentExecution) -> dict:
 def _drive(db: Session, agent: AIAgent, aexec: AIAgentExecution, conv: AIConversation) -> AIAgentExecution:
     tools = _tools(db, agent)
     tool_defs = [tool_definition_for_model(name, t.tool_key, t.config or {}) for name, t in tools.items()]
-    tc = ToolContext(db=db, organization_id=agent.organization_id, agent_id=agent.id)
+    tc = ToolContext(db=db, organization_id=agent.organization_id, agent_id=agent.id, execution_id=aexec.id)
     while True:
         pending = aexec.pending
         if pending:

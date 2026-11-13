@@ -298,7 +298,7 @@ def test_all_library_templates_are_valid_workflows():
         issues = [i for i in validate_definition(t["definition"]) if i["level"] == "error"]
         assert not issues, (t["key"], issues)
     for p in PACKAGES:
-        assert set(p["templates"]) <= keys and len(p["templates"]) >= 6
+        assert set(p["templates"]) <= keys and len(p["templates"]) >= (5 if p.get("team") else 6)
 
 
 def test_process_job_missing_is_harmless():

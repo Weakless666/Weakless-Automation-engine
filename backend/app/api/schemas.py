@@ -205,6 +205,51 @@ class SettingsOut(Out):
     environment: dict[str, Any] = Field(description="Which integrations are configured. Never contains secret values")
 
 
+class ContentItemOut(Out):
+    id: str
+    title: str
+    channel: str = Field(description="linkedin, instagram, facebook, tiktok, youtube, x, blog, newsletter, email or other")
+    body: str
+    media_notes: str
+    hashtags: list[str]
+    scheduled_for: ISO
+    status: str = Field(description="idea, draft, awaiting_approval, approved, published, rejected or failed")
+    created_by_agent_id: str | None
+    decided_at: ISO
+    decision_note: str
+    published_at: ISO
+    published_url: str | None
+    meta: dict[str, Any]
+    created_at: ISO
+    updated_at: ISO
+
+
+class TeamMemberOut(Out):
+    id: str
+    name: str
+    description: str
+    status: str
+    module: str | None
+    runs_7d: int
+    delegated_7d: int = Field(description="Tasks this member received from another agent in the last 7 days")
+    last_run_at: ISO
+    tokens_7d: int
+    cost_usd_7d: float
+
+
+class TeamModuleOut(Out):
+    name: str
+    agents: list[TeamMemberOut]
+
+
+class TeamOut(Out):
+    key: str
+    name: str
+    lead: TeamMemberOut | None
+    modules: list[TeamModuleOut]
+    kpis: dict[str, float]
+
+
 class RetentionRun(Out):
     policy: dict[str, int | None] = Field(description="Days kept per category; null keeps that data forever")
     result: dict[str, int] = Field(description="Rows deleted, cleared or merged per category in this run")
@@ -509,6 +554,9 @@ class AgentOut(Out):
     limits: dict[str, Any]
     knowledge_base_ids: list[str]
     status: str
+    team_key: str | None = None
+    team_module: str | None = None
+    team_lead: bool = False
     created_at: ISO
     updated_at: ISO
     tools: list[AgentToolOut] | None = None
@@ -770,10 +818,12 @@ class PackageOut(Out):
     template_count: int
     template_names: list[str] | None = None
     templates: list[TemplateOut] | None = None
+    team: dict[str, Any] | None = Field(None, description="AI team installed with the package: name, members and its install form (config_schema)")
 
 
 class PackageInstalled(Out):
     installed: list[InstalledTemplateOut]
+    team: dict[str, Any] | None = Field(None, description="When the package has an AI team: its agents and playbook")
 
 
 # ----------------------------------------------------------------------------- analytics

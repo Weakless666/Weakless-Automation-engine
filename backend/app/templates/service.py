@@ -66,11 +66,11 @@ def seed_library(db: Session) -> None:
         p = packages.get(spec["key"])
         if not p:
             p = IndustryPackage(key=spec["key"], name=spec["name"], description=spec["description"], industry=spec["industry"],
-                                pricing={"model": "included", "monthly_cents": None})
+                                pricing={"model": "included", "monthly_cents": None}, team_key=spec.get("team"))
             db.add(p)
             db.flush()
         else:
-            p.name, p.description, p.industry = spec["name"], spec["description"], spec["industry"]
+            p.name, p.description, p.industry, p.team_key = spec["name"], spec["description"], spec["industry"], spec.get("team")
         items = {i.template_id: i for i in db.scalars(select(IndustryPackageItem).where(IndustryPackageItem.package_id == p.id))}
         for pos, key in enumerate(spec["templates"]):
             t = existing[key]
@@ -174,7 +174,15 @@ def update_installed(db: Session, installed: InstalledTemplate) -> bool:
 
 def install_package(db: Session, organization_id: uuid.UUID, package: IndustryPackage, user_id: uuid.UUID | None,
                     template_ids: list[uuid.UUID] | None = None, shared_config: dict | None = None) -> list[InstalledTemplate]:
-    """Install the selected (default: all) templates of a package that are not installed yet."""
+    """Install the selected (default: all) templates of a package that are not installed yet. A package
+    with an AI team first creates (or reuses) the team; its agent ids become the workflows' variables."""
+    if package.team_key:
+        from app.ai.service import default_model
+        from app.templates.teams import install_team
+
+        provider, model = default_model(db, organization_id)
+        shared_config = {**(shared_config or {}), **install_team(db, organization_id, package.team_key, shared_config or {},
+                                                                provider=provider, model=model)}
     items = db.scalars(select(IndustryPackageItem).where(IndustryPackageItem.package_id == package.id).order_by(IndustryPackageItem.position)).all()
     already = set(db.scalars(select(InstalledTemplate.template_id).where(
         InstalledTemplate.organization_id == organization_id, InstalledTemplate.status != "removed")))

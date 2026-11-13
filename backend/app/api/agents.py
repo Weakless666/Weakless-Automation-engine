@@ -31,7 +31,8 @@ def agent_view(a: AIAgent, tools: list[AIAgentTool] | None = None) -> dict:
            "system_instructions": a.system_instructions, "provider": a.provider, "model": a.model, "fallbacks": a.fallbacks or [],
            "temperature": a.temperature, "max_tokens": a.max_tokens, "max_iterations": a.max_iterations,
            "provider_options": a.provider_options or {}, "limits": a.limits or {}, "knowledge_base_ids": a.knowledge_base_ids or [],
-           "status": a.status, "created_at": iso(a.created_at), "updated_at": iso(a.updated_at)}
+           "status": a.status, "team_key": a.team_key, "team_module": a.team_module, "team_lead": a.team_lead,
+           "created_at": iso(a.created_at), "updated_at": iso(a.updated_at)}
     if tools is not None:
         out["tools"] = [tool_view(t) for t in tools]
     return out
@@ -177,6 +178,10 @@ def _validate_tool(ctx: Ctx, body: ToolBody) -> bool:
         owned(ctx.db, Workflow, body.config["workflow_id"], ctx.org_id, "Workflow")
     for kb in body.config.get("knowledge_base_ids") or []:
         owned(ctx.db, KnowledgeBase, kb, ctx.org_id, "Knowledge base")
+    if body.config.get("agent_id"):
+        owned(ctx.db, AIAgent, body.config["agent_id"], ctx.org_id, "Team member")
+    if body.config.get("knowledge_base_id"):
+        owned(ctx.db, KnowledgeBase, body.config["knowledge_base_id"], ctx.org_id, "Knowledge base")
     if body.tool_key == "http_request":
         for d in body.config.get("allowed_domains") or []:
             if not isinstance(d, str) or "/" in d or "*" in d or "." not in d:

@@ -121,6 +121,21 @@ Execution statuses: `PENDING`, `QUEUED`, `RUNNING`, `WAITING`, `RETRYING`, `COMP
 | GET, POST, DELETE | `/knowledge-bases`, `/knowledge-bases/{id}` |
 | GET, POST, DELETE | `/knowledge-bases/{id}/documents`, `/documents/{doc_id}` |
 | POST | `/knowledge-bases/{id}/search` |
+| GET | `/teams` (`agents.read`): agents installed as a team, grouped by module, with 7-day runs, delegations, cost and content KPIs |
+
+Agent tools added for teams: `delegate_to_agent` (config `agent_id`, `description`; runs that member synchronously in a fresh conversation; at most 2 levels deep, never back up the chain), `content_calendar_add` (config `channels` allowlist; always creates `awaiting_approval`), `content_calendar_list`, `knowledge_note` (config `knowledge_base_id`).
+
+### Content calendar
+| Method | Path | Permission |
+|---|---|---|
+| GET, POST | `/content` (filters `start`, `end`, `status`, `channel`) | `content.read` / `content.write` |
+| GET, PATCH, DELETE | `/content/{id}` (edit only before approval; published items cannot be deleted) | `content.read` / `content.write` |
+| POST | `/content/{id}/approve`, `/content/{id}/reject` (`{note}`) | `content.approve` |
+| POST | `/content/{id}/outcome` (`{status: published|failed, url, note}`) | `content.write` |
+
+An approved item emits the `content.due` application event at its scheduled time (immediately if unscheduled or overdue). `content.*` and `workflow.*` event types are reserved for the platform. The "Update Content Item" workflow step records the publishing outcome.
+
+Packages: `GET /industry-packages/{id}` includes `team` (members and the install form) for packages with an AI team; installing such a package requires that form in `config` and returns `team.agents`.
 
 ### Integrations
 | Method | Path | Notes |

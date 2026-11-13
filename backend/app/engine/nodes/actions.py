@@ -90,6 +90,26 @@ def send_slack(ctx: NodeContext, cfg: SlackConfig) -> NodeResult:
     return NodeResult(output=_run(ctx, cfg.integration_id, "send_message", {"to": cfg.channel, "text": cfg.text}, ["slack"]))
 
 
+class ContentOutcomeConfig(NodeConfig):
+    item_id: str = Field(..., title="Content item", description="Usually {{ trigger.data.id }} in a workflow started by content.due")
+    status: Literal["published", "failed"] = "published"
+    published_url: str = Field("", max_length=1000, description="Link to the live post, when known")
+    note: str = Field("", max_length=2000)
+
+
+@node("action.update_content", "action", "Update Content Item", "Record in the content calendar that an item was published or failed.",
+      ContentOutcomeConfig, output_schema={"status": {"type": "string"}}, icon="calendar-check")
+def update_content(ctx: NodeContext, cfg: ContentOutcomeConfig) -> NodeResult:
+    from app.core.errors import AppError
+    from app.services.content import get_item, mark
+
+    try:
+        item = mark(ctx.db, get_item(ctx.db, ctx.organization_id, cfg.item_id), status=cfg.status, url=cfg.published_url or None, note=cfg.note)
+    except AppError as exc:
+        raise NodeError(exc.message, code=exc.code) from exc
+    return NodeResult(output={"status": item.status, "item_id": str(item.id)})
+
+
 class NotificationConfig(NodeConfig):
     title: str = Field(..., min_length=1, max_length=300)
     body: str = ""

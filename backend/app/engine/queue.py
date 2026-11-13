@@ -225,6 +225,10 @@ class Worker:
 
             poll_due_mailboxes(db)
         with new_session(bypass_rls=True) as db:
+            from app.services.content import release_due_content
+
+            release_due_content(db)
+        with new_session(bypass_rls=True) as db:
             expire_approvals(db)
         with new_session(bypass_rls=True) as db:
             from app.services.billing import roll_periods

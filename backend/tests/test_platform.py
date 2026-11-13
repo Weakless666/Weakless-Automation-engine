@@ -527,7 +527,7 @@ def test_template_update_flow_and_industry_package_install(client, db, org):
     eng = login(client, "eng@weakless.pro")
     h = hdr(eng, org.id)
     packages = client.get("/api/v1/industry-packages", headers=eng).json()["items"]
-    assert {p["key"] for p in packages} == {"hospitality", "restaurant", "beauty-salon", "real-estate", "ecommerce", "digital-agency"}
+    assert {p["key"] for p in packages} == {"hospitality", "restaurant", "beauty-salon", "real-estate", "ecommerce", "digital-agency", "ai-marketing-team"}
     salon = next(p for p in packages if p["key"] == "beauty-salon")
     detail = client.get(f"/api/v1/industry-packages/{salon['id']}", headers=eng).json()
     assert len(detail["templates"]) == 6

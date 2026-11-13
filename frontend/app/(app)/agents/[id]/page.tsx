@@ -104,6 +104,7 @@ function Tools({ agent, meta }: { agent: any; meta: any }) {
   const integrations = useQuery({ queryKey: [key, "integrations"], queryFn: () => api<{ items: any[] }>("/integrations") });
   const workflows = useQuery({ queryKey: [key, "workflows", "all"], queryFn: () => api<Page<any>>("/workflows", { params: { limit: 200 } }), enabled: open });
   const kbs = useQuery({ queryKey: [key, "kbs"], queryFn: () => api<{ items: any[] }>("/knowledge-bases"), enabled: open });
+  const agents = useQuery({ queryKey: [key, "agents"], queryFn: () => api<Page<any>>("/agents", { params: { limit: 200 } }), enabled: open });
   const mcp = useQuery({ queryKey: [key, "mcp-tools", config.integration_id], queryFn: () => api<{ items: any[] }>(`/integrations/${config.integration_id}/mcp-tools`), enabled: open && toolKey === "mcp_tool" && !!config.integration_id, retry: false });
   const refresh = () => qc.invalidateQueries({ queryKey: [key, "agent", agent.id] });
   const add = useMutation({ mutationFn: () => api(`/agents/${agent.id}/tools`, { method: "POST", body: { name, tool_key: toolKey, config, requires_approval: approval } }),
@@ -140,6 +141,8 @@ function Tools({ agent, meta }: { agent: any; meta: any }) {
             {c.type === "integration" ? <IntegrationSelect value={config[c.name] ?? ""} onChange={(v) => setConfig({ ...config, [c.name]: v })} integrations={integrations.data?.items ?? []}
               providers={toolKey === "mcp_tool" ? ["mcp_server"] : toolKey === "send_email" ? ["gmail", "outlook", "microsoft_365", "smtp"] : toolKey === "send_message" ? ["whatsapp", "telegram", "slack", "discord"]
                 : toolKey === "create_crm_lead" ? ["hubspot", "pipedrive", "salesforce", "mailchimp"] : toolKey === "create_calendar_event" ? ["google_calendar", "outlook", "microsoft_365"] : undefined} />
+              : c.type === "agent" ? <Select value={config[c.name] ?? ""} onChange={(e) => setConfig({ ...config, [c.name]: e.target.value })}><option value="">Select a team member...</option>{(agents.data?.items ?? []).filter((a: any) => a.id !== agent.id).map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
+              : c.type === "knowledge_base" ? <Select value={config[c.name] ?? ""} onChange={(e) => setConfig({ ...config, [c.name]: e.target.value })}><option value="">Select a knowledge base...</option>{(kbs.data?.items ?? []).map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}</Select>
               : c.type === "workflow" ? <Select value={config[c.name] ?? ""} onChange={(e) => setConfig({ ...config, [c.name]: e.target.value })}><option value="">Select a workflow...</option>{(workflows.data?.items ?? []).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</Select>
               : c.type === "knowledge_bases" ? <div className="space-y-1.5">{(kbs.data?.items ?? []).map((k) => <Checkbox key={k.id} label={k.name} checked={(config[c.name] ?? []).includes(k.id)} onChange={(on) => setConfig({ ...config, [c.name]: on ? [...(config[c.name] ?? []), k.id] : config[c.name].filter((x: string) => x !== k.id) })} />)}</div>
               : c.type === "string_list" ? <Textarea className="min-h-[60px] font-mono text-xs" placeholder="One per line" value={(config[c.name] ?? []).join("\n")} onChange={(e) => setConfig({ ...config, [c.name]: list(e.target.value) })} />

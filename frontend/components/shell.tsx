@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import {
-  Activity, BarChart3, Bell, Bot, Building2, CreditCard, LayoutDashboard, LayoutTemplate, LogOut, Menu, Package, PencilRuler, Plug, ScrollText,
+  Activity, BarChart3, Bell, Bot, Building2, CalendarDays, Users, CreditCard, LayoutDashboard, LayoutTemplate, LogOut, Menu, Package, PencilRuler, Plug, ScrollText,
   Settings, Workflow, X,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -23,6 +23,8 @@ const NAV: Item[] = [
   { href: "/automations", label: "Automations", icon: Workflow, show: (s) => s.can("workflows.read") },
   { href: "/builder", label: "Workflow Builder", icon: PencilRuler, show: (s) => s.can("workflows.write") },
   { href: "/agents", label: "AI Agents", icon: Bot, show: (s) => s.can("agents.read") },
+  { href: "/teams", label: "AI Teams", icon: Users, show: (s) => s.can("agents.read") },
+  { href: "/content", label: "Content", icon: CalendarDays, show: (s) => s.can("content.read") },
   { href: "/integrations", label: "Integrations", icon: Plug, show: (s) => s.can("integrations.read") },
   { href: "/templates", label: "Templates", icon: LayoutTemplate, show: (s) => s.can("templates.read") },
   { href: "/solutions", label: "Industry Solutions", icon: Package, show: (s) => s.can("templates.read") },

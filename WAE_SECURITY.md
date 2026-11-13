@@ -67,7 +67,8 @@ Residual risk: DNS rebinding between validation and connection. Use egress filte
 ## Workflow and agent safety
 - Workflows are data. Only registered node types can be published or run; an unknown type fails validation. Tested.
 - No `eval`, no user code, no shell. The template language is path lookup plus whitelisted filters; regular expressions are length-limited (Python's `re` has no timeout, so pathological patterns remain a theoretical risk for authors with workflow-edit rights).
-- Agents can act only through nine controlled tools, each attached explicitly with scoped configuration. A tool the model invents is refused. Tested, including the domain allowlist and method restriction of the HTTP tool and single-tool MCP allowlisting.
+- Agents can act only through thirteen controlled tools, each attached explicitly with scoped configuration.
+- Delegation between agents (`delegate_to_agent`) targets one pre-selected agent of the same organization per tool, runs it in a fresh conversation under its own tools, approvals and daily limits, stops at two levels and refuses to call an agent already in the chain. Content tools only create items awaiting a person's approval (with an optional channel allowlist); approving content needs `content.approve`, which client members and viewers do not have. Tested, including the loop guard and channel limits. A tool the model invents is refused. Tested, including the domain allowlist and method restriction of the HTTP tool and single-tool MCP allowlisting.
 - High-impact tools default to human approval; nothing is sent before approval and a rejection is reported to the model. Tested.
 - Every resource referenced by an agent tool is checked to belong to the same organization when the tool is attached and again when it runs.
 

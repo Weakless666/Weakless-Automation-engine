@@ -178,8 +178,8 @@ class EmitBody(Body):
 @router.post("/events", response_model=schemas.EventOut, status_code=202)
 def emit(body: EmitBody, ctx: Ctx = Depends(org_ctx("workflows.execute"))) -> dict:
     """Emit a custom application event; active workflows with a matching Application Event trigger start."""
-    if body.event_type.startswith("workflow."):
-        raise ValidationFailed("Event types starting with 'workflow.' are reserved for the platform")
+    if body.event_type.startswith(("workflow.", "content.")):
+        raise ValidationFailed("Event types starting with 'workflow.' or 'content.' are reserved for the platform")
     event = emit_app_event(ctx.db, ctx.org_id, body.event_type, body.data, source="app")
     ctx.db.commit()
     return event_view(event)
