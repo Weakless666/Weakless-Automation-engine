@@ -24016,6 +24016,82 @@
         "title": "LoginResult",
         "description": "Either a session (``token``) or the two-factor step (``mfa_required`` / ``mfa_setup_required``)."
       },
+      "MailboxWatchOut": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "title": "Node Id"
+          },
+          "integration_id": {
+            "type": "string",
+            "title": "Integration Id"
+          },
+          "folder": {
+            "type": "string",
+            "title": "Folder"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "poll_minutes": {
+            "type": "integer",
+            "title": "Poll Minutes"
+          },
+          "next_poll_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Poll At"
+          },
+          "last_polled_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Polled At"
+          },
+          "watching": {
+            "type": "boolean",
+            "title": "Watching",
+            "description": "True once the first poll has recorded where new mail starts"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "node_id",
+          "integration_id",
+          "folder",
+          "is_active",
+          "poll_minutes",
+          "next_poll_at",
+          "last_polled_at",
+          "watching",
+          "last_error"
+        ],
+        "title": "MailboxWatchOut"
+      },
       "McpToolOut": {
         "properties": {
           "name": {
@@ -28212,6 +28288,13 @@
             },
             "type": "array",
             "title": "Schedules"
+          },
+          "mailboxes": {
+            "items": {
+              "$ref": "#/components/schemas/MailboxWatchOut"
+            },
+            "type": "array",
+            "title": "Mailboxes"
           }
         },
         "additionalProperties": true,

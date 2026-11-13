@@ -42,7 +42,7 @@ def _mail(subject: str, sender: str = "Guest <guest@example.org>", body: str = "
 
 
 def _mailbox(db, org, server: ImapServer, password: str | None = None, name: str = "Front desk"):
-    integration = create_integration(db, org.id, "imap", name, {"host": "localhost", "port": str(server.port), "security": "ssl",
+    integration = create_integration(db, org.id, "imap", name, {"host": "127.0.0.1", "port": str(server.port), "security": "ssl",
                                                                          "username": server.username, "password": password or server.password}, None)
     db.commit()
     return integration

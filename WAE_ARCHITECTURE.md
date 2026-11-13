@@ -50,7 +50,7 @@ Both operating modes use the same infrastructure. An organization has `mode = ag
 - Variables (`{{ vars.* }}`) are stored on the workflow and apply to new runs immediately.
 
 ### Node registry (`engine/registry.py`, `engine/nodes/`)
-45 node types: 9 triggers, 16 actions, 11 logic, 9 AI. Each declares a Pydantic configuration model (also served to the UI as JSON Schema, which generates the forms), an output schema, its output handles and whether it is **idempotent**. Handlers are functions in this codebase; workflow configuration can never introduce code. Templates use a path-and-filter expression language (`engine/expressions.py`) with no `eval`.
+46 node types: 10 triggers, 16 actions, 11 logic, 9 AI. Each declares a Pydantic configuration model (also served to the UI as JSON Schema, which generates the forms), an output schema, its output handles and whether it is **idempotent**. Handlers are functions in this codebase; workflow configuration can never introduce code. Templates use a path-and-filter expression language (`engine/expressions.py`) with no `eval`.
 
 ### Execution engine (`engine/executor.py`)
 An interpreter that persists its state after every node.
@@ -71,7 +71,7 @@ Jobs are rows in `execution_queues`. Workers claim them atomically, heartbeat im
 - Endpoint-backed triggers (webhook, form, payment, message, email, database event) get an unguessable URL. Requests are size-limited, rate-limited per endpoint, verified (HMAC with timestamp, shared secret, Stripe, Meta, Telegram or Slack schemes), de-duplicated and recorded in `webhook_events`; events can be replayed.
 - Schedule triggers use cron expressions with time zones; each tick is consumed with a compare-and-swap so it fires once.
 - Application events: lifecycle events (`workflow.completed`, `workflow.failed`) and custom events emitted through the API start subscribed workflows, with a guard against feedback loops.
-- Email and database triggers are webhook-based (an inbound-parse service or database webhooks call the URL). Mailbox polling and native database listeners are not implemented.
+- Email can start workflows two ways: the Email Trigger (an inbound-parse service calls the trigger URL) or the Mailbox Trigger, which polls an IMAP folder from the workers (`services/mailbox.py`, `integrations/imap.py`). Polling is TLS-only with certificate verification, tracks UID + UIDVALIDITY per watch, only counts mail that arrives after activation, starts each message once (idempotency key per UID), and backs off on errors. Database triggers are webhook-based; native database listeners are not implemented.
 
 ### AI (`ai/`)
 - `providers.py` normalizes Anthropic (official SDK), OpenAI, OpenAI-compatible servers and Gemini behind one request/response shape. Nothing else in the codebase imports a vendor SDK.

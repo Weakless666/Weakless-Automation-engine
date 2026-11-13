@@ -42,7 +42,7 @@ Ordered by how much risk each item removes.
 11. ~~Typed response models so OpenAPI documents responses~~ (done 2026-11-12).
 12. Live execution updates over WebSocket or SSE if polling proves too slow.
 13. Vector search for knowledge bases once an embedding provider is chosen.
-14. Mailbox polling for the Email trigger if clients cannot use inbound-parse webhooks.
+14. ~~Mailbox polling for clients who cannot use inbound-parse webhooks~~ (done 2026-11-13: Mailbox Trigger over IMAP; next, try it against Gmail and Microsoft 365 with real accounts).
 
 ### 4. Scale-out
 15. ~~Shared rate limiting when running more than one API instance~~ (done 2026-11-12 in the database, no Redis; the general per-client budget stays per process).

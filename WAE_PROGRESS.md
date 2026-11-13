@@ -2,7 +2,7 @@
 
 Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 
-**TESTED** means automated tests exist and passed on the last run (104 backend tests on SQLite and on PostgreSQL; 3 of them run only on PostgreSQL, 2026-11-12, including checks that every API operation documents a typed response and the error envelope, the data retention sweeps, and that event triggers and quota checks issue a fixed number of queries however large an organization grows). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 29 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, analytics, billing and plans, audit, executions (retry, resume), notifications and staff invitations, two-factor sign-in, and that every main screen opens (72/72 over three repeats in Edge, 2026-11-12; 29/29 after the retention screen, the phone and tablet layouts and the Content-Security-Policy were added). Every screen is checked to fit 390 px and 768 px wide without sideways scrolling; below 1024 px the sidebar is a drawer and the builder's step list and settings become a drawer and a bottom sheet. Screens are not checked for visual design.
+**TESTED** means automated tests exist and passed on the last run (111 backend tests on SQLite and on PostgreSQL; 3 of them run only on PostgreSQL, 2026-11-12, including checks that every API operation documents a typed response and the error envelope, the data retention sweeps, and that event triggers and quota checks issue a fixed number of queries however large an organization grows). It does **not** mean verified against live external services or PostgreSQL; those gaps are listed per module and in WAE_IMPLEMENTATION_REPORT.md. Frontend: 30 Playwright browser tests cover the builder, invitations and password reset, templates and packages, agents and knowledge bases, integrations, role-based navigation, analytics, billing and plans, audit, executions (retry, resume), notifications and staff invitations, two-factor sign-in, and that every main screen opens (72/72 over three repeats in Edge, 2026-11-12; 30/30 after the retention screen, the Mailbox Trigger, the phone and tablet layouts and the Content-Security-Policy were added). Every screen is checked to fit 390 px and 768 px wide without sideways scrolling; below 1024 px the sidebar is a drawer and the builder's step list and settings become a drawer and a bottom sheet. Screens are not checked for visual design.
 
 | # | Module | Backend | Frontend | Notes |
 |---|---|---|---|---|
@@ -29,5 +29,5 @@ Statuses: NOT STARTED, IN PROGRESS, IMPLEMENTED, TESTED, BLOCKED.
 ## Not started
 - WebSocket live updates (polling is used)
 - Vector / semantic knowledge search
-- Mailbox polling for the Email trigger; native database change listeners
+- Native database change listeners; OAuth (XOAUTH2) for IMAP mailboxes
 - SSO, passkeys

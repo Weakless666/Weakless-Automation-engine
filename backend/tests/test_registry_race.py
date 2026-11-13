@@ -28,4 +28,7 @@ def test_concurrent_first_use_sees_the_full_registry():
     out = subprocess.run([sys.executable, "-c", SCRIPT], cwd=Path(__file__).resolve().parent.parent,
                          capture_output=True, text=True, timeout=120, env={**__import__("os").environ, "WAE_ENV": "test"})
     assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "[45]", out.stdout
+    from app.engine import registry
+
+    registry.load_nodes()
+    assert out.stdout.strip() == f"[{len(registry.all_specs())}]", out.stdout  # every thread saw the complete registry

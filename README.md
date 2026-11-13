@@ -29,9 +29,9 @@ backend/
     integrations/   provider catalog + adapters, OAuth, connection lifecycle
     services/       workflows, executions, webhooks, events, scheduler, approvals, usage, billing, analytics, notifications
     templates/      template library, industry packages, install/update service
-    models.py       complete schema (53 tables)
+    models.py       complete schema (54 tables)
     cli.py          operational commands
-  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor, 0005 data retention, 0006 event index and usage counters, 0007 shared rate limits)
+  alembic/          migrations (0001 schema, 0002 PostgreSQL Row Level Security, 0003 account links, 0004 two-factor, 0005 data retention, 0006 event index and usage counters, 0007 shared rate limits, 0008 mailbox watches)
   tests/            83 tests: engine, security, accounts, two-factor, platform/e2e, operations
 frontend/           Next.js application
 deploy/             PostgreSQL role bootstrap, backup script
@@ -174,7 +174,7 @@ Frontend: `BACKEND_URL` (build time for Docker, run time for `npm run dev`), def
 
 Nothing is reported as connected until a live check against the provider succeeds. Providers that cannot work yet say why.
 
-- **API-key providers** (Telegram, Slack, WhatsApp Cloud API, HubSpot, Pipedrive, Notion, Airtable, Shopify, WooCommerce, Stripe, Mailchimp, Supabase, PostgreSQL, SMTP, REST API, MCP server, Anthropic, OpenAI, Gemini, OpenAI-compatible): an engineer or client admin enters the credentials under **Integrations -> Catalog**. They are encrypted before storage and tested immediately.
+- **API-key providers** (Telegram, Slack, WhatsApp Cloud API, HubSpot, Pipedrive, Notion, Airtable, Shopify, WooCommerce, Stripe, Mailchimp, Supabase, PostgreSQL, SMTP, IMAP mailbox (for the Mailbox Trigger; use an app password for Gmail/Outlook), REST API, MCP server, Anthropic, OpenAI, Gemini, OpenAI-compatible): an engineer or client admin enters the credentials under **Integrations -> Catalog**. They are encrypted before storage and tested immediately.
 - **OAuth providers** (Gmail, Google Calendar/Drive/Sheets/Docs, Outlook, Microsoft 365, Salesforce, LinkedIn): create an OAuth app with the provider, register the redirect URI `<WAE_PUBLIC_BASE_URL>/api/v1/integrations/oauth/callback`, and set `WAE_OAUTH_<GROUP>_CLIENT_ID` / `_CLIENT_SECRET`. Until then these providers show **Awaiting platform credentials**.
 - **AI**: connect an AI provider per organization, or set a platform key. The default model is `claude-opus-5-5`; change it per organization, per agent or per node. Enter prices for non-Anthropic models under **Settings -> Platform -> Model prices**, otherwise their cost is shown as unknown rather than guessed.
 - **Inbound triggers**: each webhook-type trigger gets a unique URL shown in the builder. For Stripe, Meta (WhatsApp) and Slack, store the provider's signing secret on the trigger; for Telegram, pass the generated secret as `secret_token` to `setWebhook`.

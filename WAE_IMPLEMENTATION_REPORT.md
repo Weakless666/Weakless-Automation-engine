@@ -25,7 +25,7 @@ Automated tests pass for the following (`cd backend && pytest -q`).
 - Cancellation, idempotency keys
 - Crash recovery that refuses to repeat a non-idempotent step; dead-letter queue after repeated infrastructure failure
 - Graph validation (triggers, cycles, handles, unknown node types, loop rules)
-- All 45 node types register and describe themselves; all 46 templates validate
+- All 46 node types register and describe themselves; all 46 templates validate
 
 **Security and tenancy**
 - Unauthenticated access rejected; generic login failures; lockout; logout revocation; CSRF on cookie sessions
@@ -89,7 +89,7 @@ Relative to the brief:
 - **n8n, Temporal, BullMQ, Redis** - evaluated and deliberately not integrated; reasons in WAE_ARCHITECTURE.md. The queue is PostgreSQL-backed.
 - **WebSockets** - not implemented; the UI polls.
 - **Separate interfaces per role** - one interface filtered by permission rather than four separate ones.
-- **Email trigger** - webhook-based only; no mailbox polling.
+- **Mailbox Trigger (IMAP)** - added 2026-11-13 and tested against a real IMAP server over TLS run by the test suite; not yet against Gmail or Microsoft 365 (Microsoft tenants often disable IMAP basic authentication; OAuth-based IMAP is not implemented).
 - **Database event trigger** - webhook-based only; no native listeners.
 - **Knowledge retrieval** - keyword (BM25) only; no embeddings.
 - **Upload File** - text content only; no binary uploads.

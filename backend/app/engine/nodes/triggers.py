@@ -54,7 +54,7 @@ class AppEventConfig(NodeConfig):
 
 
 class MailboxConfig(NodeConfig):
-    integration_id: str = Field(..., description="IMAP Mailbox integration to watch")
+    integration_id: str = Field(..., title="Mailbox", description="IMAP Mailbox integration to watch")
     folder: str = Field("INBOX", min_length=1, max_length=200, description="Folder to watch")
     poll_minutes: int = Field(2, ge=1, le=60, description="How often to check for new mail")
     mark_as_read: bool = Field(False, description="Mark handled messages as read in the mailbox")

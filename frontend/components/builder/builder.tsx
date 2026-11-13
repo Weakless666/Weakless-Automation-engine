@@ -158,6 +158,21 @@ function TriggerInfo({ endpoint, schedule, workflowId, onChanged }: { endpoint?:
   );
 }
 
+function MailboxInfo({ mailbox }: { mailbox?: any }) {
+  if (!mailbox || !mailbox.is_active) {
+    return <Notice>Checks the mailbox every few minutes once the workflow is published and active. Only mail that arrives after activation starts it.</Notice>;
+  }
+  if (mailbox.last_error) {
+    return <Notice tone="warning">The mailbox could not be read: {mailbox.last_error}. Next attempt {fmtRelative(mailbox.next_poll_at)}.</Notice>;
+  }
+  return (
+    <Notice tone="success">
+      Watching <span className="font-mono">{mailbox.folder}</span> every {mailbox.poll_minutes} min.{" "}
+      {mailbox.watching ? `Last checked ${fmtRelative(mailbox.last_polled_at)}.` : "The first check notes where new mail begins."}
+    </Notice>
+  );
+}
+
 function NodePanel({ node, spec, issues, triggers, workflowId, onChange, onDelete, onDuplicate, onTriggersChanged }: {
   node: WaeNode; spec: NodeSpec | undefined; issues: Issue[]; triggers: any; workflowId: string;
   onChange: (patch: Partial<WaeNode["data"]>) => void; onDelete: () => void; onDuplicate: () => void; onTriggersChanged: () => void;
@@ -167,7 +182,8 @@ function NodePanel({ node, spec, issues, triggers, workflowId, onChange, onDelet
   const outputs = Object.keys(spec?.output_schema?.properties ?? {});
   const endpoint = triggers?.endpoints?.find((e: any) => e.node_id === node.id);
   const schedule = triggers?.schedules?.find((s: any) => s.node_id === node.id);
-  const isEndpointTrigger = spec?.category === "trigger" && !["trigger.manual", "trigger.app_event"].includes(node.data.type);
+  const mailbox = triggers?.mailboxes?.find((m: any) => m.node_id === node.id);
+  const isEndpointTrigger = spec?.category === "trigger" && !["trigger.manual", "trigger.app_event", "trigger.mailbox"].includes(node.data.type);
   return (
     <div className="space-y-4 p-4">
       <div>
@@ -179,6 +195,7 @@ function NodePanel({ node, spec, issues, triggers, workflowId, onChange, onDelet
       </div>
       {issues.map((i, k) => <Notice key={k} tone={i.level === "error" ? "warning" : "info"}>{i.message}</Notice>)}
       <Field label="Step name"><Input value={node.data.name} onChange={(e) => onChange({ name: e.target.value })} maxLength={200} /></Field>
+      {node.data.type === "trigger.mailbox" && <MailboxInfo mailbox={mailbox} />}
       {isEndpointTrigger && <TriggerInfo endpoint={endpoint} schedule={node.data.type === "trigger.schedule" ? schedule ?? { cron: node.data.config.cron, timezone: node.data.config.timezone ?? "UTC", is_active: false } : undefined} workflowId={workflowId} onChanged={onTriggersChanged} />}
       {spec ? <SchemaForm schema={spec.config_schema} value={node.data.config} onChange={(config) => onChange({ config })} providers={spec.providers} />
         : <Notice tone="warning">This step type is not available in the node registry. Remove it to publish the workflow.</Notice>}
