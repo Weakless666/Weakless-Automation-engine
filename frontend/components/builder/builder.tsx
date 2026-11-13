@@ -199,7 +199,7 @@ function NodePanel({ node, spec, issues, triggers, workflowId, onChange, onDelet
       {isEndpointTrigger && <TriggerInfo endpoint={endpoint} schedule={node.data.type === "trigger.schedule" ? schedule ?? { cron: node.data.config.cron, timezone: node.data.config.timezone ?? "UTC", is_active: false } : undefined} workflowId={workflowId} onChanged={onTriggersChanged} />}
       {spec ? <SchemaForm schema={spec.config_schema} value={node.data.config} onChange={(config) => onChange({ config })} providers={spec.providers} />
         : <Notice tone="warning">This step type is not available in the node registry. Remove it to publish the workflow.</Notice>}
-      {spec && spec.category !== "trigger" && spec.category !== "logic" && (
+      {spec && (spec.category === "action" || spec.category === "ai") && (
         <div className="space-y-2.5 rounded-md border bg-bg p-2.5">
           <div className="text-2xs font-medium uppercase tracking-wider text-muted">Failure handling</div>
           <Field label="Attempts on transient errors" hint="1 = no automatic retry. Retries use exponential back-off with jitter.">

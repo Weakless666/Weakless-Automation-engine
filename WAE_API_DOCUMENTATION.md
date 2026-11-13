@@ -103,7 +103,9 @@ Template scope inside node configuration: `trigger.*`, `nodes.<id>.*`, `input.*`
 |---|---|---|
 | GET | `/executions` | Filters: `status`, `workflow_id`, `start`, `end`, `include_tests`. Platform-wide for staff. |
 | GET | `/executions/{id}` | Includes steps, waiting nodes, generated documents |
-| POST | `/executions/{id}/cancel`, `/retry`, `/resume` | `executions.manage` |
+| POST | `/executions/{id}/cancel`, `/retry`, `/resume` | `executions.manage`. `/retry?from_failed_step=true` continues at the failed step on the same version, keeping earlier results (the execution's `can_resume` says whether that is possible) |
+
+Webhook and form triggers accept `response_mode: "respond_step"` (with `response_timeout_seconds`, 1-25): the request waits for a Respond to Webhook step and returns its status, body and content type; without a reply in time it gets the usual `202 {status, execution_id}`.
 | GET | `/approvals` | Filter `status` |
 | POST | `/approvals/{id}/decide` | `{approved, note}` |
 

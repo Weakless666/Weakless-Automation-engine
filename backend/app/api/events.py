@@ -4,7 +4,8 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from starlette.concurrency import run_in_threadpool
 from pydantic import Field
 from sqlalchemy import select
 
@@ -45,6 +46,14 @@ async def inbound(endpoint_key: str, request: Request):
                                        query=dict(request.query_params))
     if "_raw" in payload:
         return PlainTextResponse(payload["_raw"], status_code=status)
+    wait = payload.pop("_wait", None)
+    if wait:  # the trigger waits for a Respond to Webhook step (run off the event loop: it executes the workflow)
+        reply = await run_in_threadpool(hooks.wait_for_response, wait["execution_id"], wait["timeout"])
+        if reply:
+            code, body_out, ctype = int(reply.get("status_code") or 200), reply.get("body"), reply.get("content_type") or "application/json"
+            if ctype == "application/json":
+                return JSONResponse(body_out, status_code=code)
+            return Response(str(body_out), status_code=code, media_type=ctype)
     return JSONResponse(payload, status_code=status)
 
 

@@ -43,7 +43,8 @@ export default function ExecutionPage({ params }: { params: Promise<{ id: string
   const q = useQuery({ queryKey: [key, "execution", id], queryFn: () => api(`/executions/${id}`),
     refetchInterval: (query) => (query.state.data && LIVE.includes((query.state.data as any).status) ? 2000 : false) });
   const cancel = useMutation({ mutationFn: () => api(`/executions/${id}/cancel`, { method: "POST" }), onSuccess: () => q.refetch() });
-  const retry = useMutation({ mutationFn: () => api(`/executions/${id}/retry`, { method: "POST" }), onSuccess: (e: any) => router.push(`/executions/${e.id}`) });
+  const retry = useMutation({ mutationFn: (fromStep: boolean) => api(`/executions/${id}/retry`, { method: "POST", params: fromStep ? { from_failed_step: true } : undefined }),
+    onSuccess: (e: any) => router.push(`/executions/${e.id}`) });
   const resume = useMutation({ mutationFn: (node: string) => api(`/executions/${id}/resume`, { method: "POST", body: { node_id: node, data: {} } }), onSuccess: () => q.refetch() });
 
   if (q.isLoading) return <Spinner />;
@@ -58,19 +59,25 @@ export default function ExecutionPage({ params }: { params: Promise<{ id: string
           <span>Trigger: {e.trigger_type.replace(/_/g, " ")}</span>{e.version && <span>- version {e.version}</span>}<span>- started {fmtDate(e.started_at ?? e.created_at)}</span><span>- {fmtDuration(e.duration_ms)}</span></span>}
         actions={manage && <>
           {LIVE.includes(e.status) && <Button variant="danger" loading={cancel.isPending} onClick={() => window.confirm("Cancel this execution?") && cancel.mutate()}><Square className="h-3.5 w-3.5" /> Cancel</Button>}
-          {["FAILED", "CANCELLED"].includes(e.status) && !e.details_purged_at && <Button variant="primary" loading={retry.isPending}
-            onClick={() => window.confirm("Run this workflow again with the same trigger data? Steps that already completed will run again.") && retry.mutate()}><RefreshCw className="h-3.5 w-3.5" /> Retry</Button>}
+          {e.can_resume && <Button variant="primary" loading={retry.isPending && retry.variables === true}
+            onClick={() => window.confirm("Continue from the failed step? Steps that already succeeded keep their results and are not repeated.") && retry.mutate(true)}>
+            <RefreshCw className="h-3.5 w-3.5" /> Retry from failed step</Button>}
+          {["FAILED", "CANCELLED"].includes(e.status) && !e.details_purged_at && <Button variant={e.can_resume ? "secondary" : "primary"} loading={retry.isPending && retry.variables === false}
+            onClick={() => window.confirm("Run this workflow again from the start with the same trigger data? Steps that already completed will run again.") && retry.mutate(false)}>
+            <RefreshCw className="h-3.5 w-3.5" /> {e.can_resume ? "Run again from the start" : "Retry"}</Button>}
         </>} />
       <div className="space-y-5">
         <InlineError error={cancel.error ?? retry.error ?? resume.error} />
         {e.error && <Notice tone="warning"><strong>{e.error.node_name ?? e.error.node_id ?? "Execution"}</strong>: {e.error.message} <span className="font-mono opacity-70">({e.error.code})</span></Notice>}
         {e.details_purged_at && <Notice>The step log, trigger data and result of this execution were removed on {fmtDate(e.details_purged_at)} under the data retention policy. Its status, timing and error are kept.</Notice>}
-        {e.retry_of_id && <Notice>This is a retry of <Link className="underline" href={`/executions/${e.retry_of_id}`}>{e.retry_of_id.slice(0, 8)}</Link>.</Notice>}
+        {e.retry_of_id && <Notice>This is a retry of <Link className="underline" href={`/executions/${e.retry_of_id}`}>{e.retry_of_id.slice(0, 8)}</Link>
+          {e.resumed_from ? `, continued from the failed step (${e.resumed_from.steps.join(", ")}); earlier steps were not repeated.` : "."}</Notice>}
+        {e.parent_execution_id && <Notice>Started by a Run Workflow step in <Link className="underline" href={`/executions/${e.parent_execution_id}`}>execution {e.parent_execution_id.slice(0, 8)}</Link>.</Notice>}
         {e.waiting.length > 0 && (
           <Card><CardHeader title="Paused" description="The execution continues automatically when the wait ends." />
             <ul className="divide-y divide-line/60">{e.waiting.map((w: any) => (
               <li key={w.node_id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                <span><span className="font-mono text-xs">{w.node_id}</span> - {w.kind === "delay" ? `delay until ${fmtDate(w.resume_at)}` : w.kind === "approval" ? "waiting for approval" : w.kind === "agent" ? "AI agent waiting for approval" : "waiting for an external signal"}</span>
+                <span><span className="font-mono text-xs">{w.node_id}</span> - {w.kind === "delay" ? `delay until ${fmtDate(w.resume_at)}` : w.kind === "approval" ? "waiting for approval" : w.kind === "agent" ? "AI agent waiting for approval" : w.kind === "subworkflow" ? "waiting for the called workflow to finish" : "waiting for an external signal"}</span>
                 {w.kind === "external" && manage && <Button size="sm" loading={resume.isPending} onClick={() => resume.mutate(w.node_id)}>Resume now</Button>}
                 {(w.kind === "approval" || w.kind === "agent") && <Link href="/executions" className="text-xs text-primary hover:underline">Open approvals</Link>}
               </li>

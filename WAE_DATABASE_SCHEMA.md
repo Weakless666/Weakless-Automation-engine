@@ -113,6 +113,7 @@ The application sets both settings at the start of every transaction (`app/db.py
 | `0005` | `workflow_executions.details_purged_at` and indexes for the retention sweeps |
 | `0006` | `app_event_subscriptions` and `usage_counters`, back-filled from published versions and existing usage records; Row Level Security on both (PostgreSQL). `0002` now carries its own frozen table list, so later tenant tables get their policies in their own migration |
 | `0007` | `rate_limit_counters` for limits shared by every API instance (not a tenant table: keys are SHA-256 digests) |
+| `0010` | `workflow_executions.parent_execution_id` / `parent_node_key` (Run Workflow) and `response` (Respond to Webhook) |
 | `0009` | AI teams and the content calendar: `ai_agents.team_key/team_module/team_lead`, `ai_agent_executions.parent_execution_id` (delegation chain), `industry_packages.team_key`, and `content_items` (Row Level Security on PostgreSQL) |
 | `0008` | `mailbox_watches`: one row per Mailbox Trigger of a published workflow (folder, poll interval, UIDVALIDITY and last UID read, failures); Row Level Security on PostgreSQL |
 

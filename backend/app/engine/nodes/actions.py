@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from app.core import http
 from app.core.errors import NodeError
@@ -184,6 +184,46 @@ class UpdateRecordConfig(CreateRecordConfig):
       providers=DB_PROVIDERS, idempotent=True, output_schema={"updated": {"type": "integer"}}, icon="database-zap")
 def db_update_record(ctx: NodeContext, cfg: UpdateRecordConfig) -> NodeResult:
     return NodeResult(output=_run(ctx, cfg.integration_id, "update_record", cfg.model_dump(exclude={"integration_id"}), DB_PROVIDERS))
+
+
+class FindCondition(BaseModel):
+    field: str = Field(..., min_length=1, max_length=100, description="Column or property name")
+    operator: Literal["equals", "not_equals", "contains", "gt", "gte", "lt", "lte", "is_empty", "is_not_empty"] = "equals"
+    value: Any = None
+
+
+class _FindBase(NodeConfig):
+    integration_id: str = _ID
+    filters: list[FindCondition] = Field(default_factory=list, max_length=10, description="All conditions must match")
+    sort_by: str = Field("", description="Field to sort by (optional)")
+    order: Literal["ascending", "descending"] = "ascending"
+    limit: int = Field(25, ge=1, le=200)
+
+
+_FOUND = {"records": {"type": "array"}, "count": {"type": "integer"}, "found": {"type": "boolean"}, "first": {"type": "object"}}
+
+
+class FindCrmConfig(_FindBase):
+    object_type: str = Field("contacts", description="contacts / companies / deals (HubSpot), persons / deals (Pipedrive), Lead / Contact (Salesforce)")
+    properties: list[str] = Field(default_factory=list, description="Fields to return (HubSpot, Salesforce); empty = defaults")
+
+
+@node("action.crm_find", "action", "Find CRM Records", "Search HubSpot, Pipedrive or Salesforce, e.g. find the contact with this email.",
+      FindCrmConfig, providers=["hubspot", "pipedrive", "salesforce"], output_schema=_FOUND, icon="user-search")
+def crm_find(ctx: NodeContext, cfg: FindCrmConfig) -> NodeResult:
+    return NodeResult(output=_run(ctx, cfg.integration_id, "find_records", cfg.model_dump(exclude={"integration_id"}), ["hubspot", "pipedrive", "salesforce"]))
+
+
+class FindRecordsConfig(_FindBase):
+    table: str = Field(..., min_length=1, description="Table / sheet range (e.g. Sheet1!A:F) / Notion database id")
+    database: str | None = Field(None, description="Airtable base id or spreadsheet id (overrides the integration default)")
+
+
+@node("action.db_find", "action", "Find Database Records",
+      "Read matching rows from Supabase, PostgreSQL, Airtable, Notion or Google Sheets.", FindRecordsConfig,
+      providers=DB_PROVIDERS, output_schema=_FOUND, icon="search")
+def db_find(ctx: NodeContext, cfg: FindRecordsConfig) -> NodeResult:
+    return NodeResult(output=_run(ctx, cfg.integration_id, "find_records", cfg.model_dump(exclude={"integration_id"}), DB_PROVIDERS))
 
 
 # ----------------------------------------------------------------------------- HTTP

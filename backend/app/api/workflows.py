@@ -25,7 +25,7 @@ from app.models import MailboxWatch
 from app.services import workflows as wfs
 from app.services.approvals import decide_approval
 from app.services.audit import audit
-from app.services.executions import cancel_execution, resume_execution, retry_execution, start_execution
+from app.services.executions import cancel_execution, resumable_state, resume_execution, retry_execution, start_execution
 
 router = APIRouter(route_class=ApiRoute, tags=["workflows"])
 
@@ -344,6 +344,9 @@ def get_execution(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("execut
                    "started_at": iso(s.started_at), "finished_at": iso(s.finished_at), "duration_ms": s.duration_ms} for s in steps],
         "documents": [{"id": str(d.id), "name": d.name, "content_type": d.content_type, "content": d.content} for d in docs],
         "details_purged_at": iso(ex.details_purged_at),
+        "can_resume": resumable_state(ex) is not None and not ex.details_purged_at,
+        "resumed_from": (ex.state or {}).get("resumed_from"),
+        "parent_execution_id": str(ex.parent_execution_id) if ex.parent_execution_id else None,
     }
 
 
@@ -366,11 +369,13 @@ def cancel(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("executions.re
 
 
 @router.post("/executions/{execution_id}/retry", response_model=schemas.ExecutionOut, status_code=202)
-def retry(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("executions.read"))) -> dict:
+def retry(execution_id: str, from_failed_step: bool = False, ctx: Ctx = Depends(optional_org_ctx("executions.read"))) -> dict:
+    """Run again. With ``from_failed_step=true`` the steps that succeeded are not repeated."""
     ex = _get_execution(ctx, execution_id)
     _manage(ctx, ex)
-    new = retry_execution(ctx.db, ex, ctx.user.id)
-    audit(ctx.db, "execution.retried", ctx=ctx, organization_id=ex.organization_id, resource_type="execution", resource_id=ex.id, meta={"new": str(new.id)})
+    new = retry_execution(ctx.db, ex, ctx.user.id, from_failed_step=from_failed_step)
+    audit(ctx.db, "execution.retried", ctx=ctx, organization_id=ex.organization_id, resource_type="execution", resource_id=ex.id,
+          meta={"new": str(new.id), "from_failed_step": from_failed_step})
     ctx.db.commit()
     return exec_view(new)
 

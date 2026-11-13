@@ -232,6 +232,10 @@ class Run:
 
             if error is None and result is not None:
                 output = redact(result.output, ctx.secrets) if ctx.secrets else result.output
+                if isinstance(output, dict) and "_respond" in output:  # Respond to Webhook: the waiting caller reads it
+                    output = dict(output)
+                    self.ex.response = output.pop("_respond")
+                    flag_modified(self.ex, "response")
                 if result.wait:
                     return self._enter_wait(frame, nid, step, result, output)
                 self._close_step(step, "COMPLETED", output=output)
@@ -353,13 +357,35 @@ class Run:
                 output, handles = {"timed_out": True}, ["timeout"]
             else:
                 output, handles = {"timed_out": False, "data": payload.get("output") or {}}, ["out"]
-        else:  # e.g. an AI agent that paused for human approval and has now finished
+        elif entry["kind"] == "subworkflow" and timed_out:
+            child_id = _uuid(entry["data"].get("execution_id"))
+            child = self.db.get(WorkflowExecution, child_id) if child_id else None
+            if child and child.status not in TERMINAL_STATUSES:  # nobody is waiting for it any more
+                from app.services.executions import cancel_execution
+
+                cancel_execution(self.db, child)
+            output = {"execution_id": entry["data"].get("execution_id"), "status": "TIMED_OUT",
+                      "error": {"code": "timeout", "message": "The called workflow did not finish in time"}}
+            handles = ["error"]
+        else:  # an AI agent that paused for approval, or a called workflow, has finished
             output, handles = payload.get("output") or {}, payload.get("handles") or ["out"]
+        if handles == ["error"] and not any(e["handle"] == "error" for e in self.g.out[nid]):
+            # Nothing handles the failure on this step: the execution fails, as it would for a failing action.
+            err = dict(output.get("error") or {"code": "failed", "message": "Step failed"})
+            node = self.g.nodes[nid]
+            inner = {k: err.pop(k) for k in ("node_id", "node_name") if k in err}  # where it failed inside the called workflow
+            self.state["fail_now"] = {**err, "node_id": nid, "node_name": node.get("name") or nid,
+                                      **({"called_execution_id": output.get("execution_id"), "called_step": inner} if inner else {})}
         step_id = _uuid(entry.get("step"))
         step = self.db.get(WorkflowExecutionStep, step_id) if step_id else None
+        failed = "fail_now" in self.state
         if step:
-            self._close_step(step, "COMPLETED", output=output)
-        self._complete(self.state, nid, output, handles)
+            self._close_step(step, "FAILED" if failed else "COMPLETED", output=output,
+                             error=self.state["fail_now"] if failed else None)
+        if failed:
+            self.state["status"][nid] = "failed"
+        else:
+            self._complete(self.state, nid, output, handles)
         self.save()
 
     # ------------------------------------------------------------------ main loop
@@ -395,6 +421,17 @@ class Run:
             ex.output = truncate({n: self.state["outputs"].get(n) for n in leaves}, STATE_OUTPUT_LIMIT)
         self.state.pop("running", None)
         self.save()
+        if ex.parent_execution_id and ex.parent_node_key:
+            # A Run Workflow step is waiting for this result: wake the calling execution.
+            from app.engine.queue import enqueue
+
+            ok = status == "COMPLETED"
+            enqueue(self.db, ex.organization_id, ex.parent_execution_id, payload={
+                "resume_node": ex.parent_node_key,
+                "output": {"execution_id": str(ex.id), "status": status, "output": ex.output or {}, "error": ex.error},
+                "handles": ["out"] if ok else ["error"],
+            })
+            self.db.commit()
         try:
             from app.services.events import on_execution_finished
 
@@ -500,4 +537,6 @@ def run_execution(db: Session, execution_id, payload: dict | None = None) -> str
         run.start()
     if payload.get("resume_node") or payload.get("timeout_node"):
         run.apply_resume(payload)
+        if "fail_now" in run.state:
+            return run.finish("FAILED", run.state.pop("fail_now"))
     return run.loop()

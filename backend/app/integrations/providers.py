@@ -121,6 +121,77 @@ def _need(p: dict, *names: str) -> None:
         raise NodeError(f"Missing required field(s): {', '.join(missing)}", code="invalid_config")
 
 
+# ------------------------------------------------------------------ finding records (shared helpers)
+
+FIND_OPERATORS = ("equals", "not_equals", "contains", "gt", "gte", "lt", "lte", "is_empty", "is_not_empty")
+_FIELD = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_ .\-]{0,99}$")
+FIND_MAX = 200
+
+
+def _find_params(p: dict) -> tuple[list[dict], int]:
+    filters = []
+    for f in p.get("filters") or []:
+        field, op = str(f.get("field") or "").strip(), str(f.get("operator") or "equals")
+        if not _FIELD.match(field):
+            raise NodeError(f"Field name '{field[:40]}' is not valid", code="invalid_config")
+        if op not in FIND_OPERATORS:
+            raise NodeError(f"Unknown operator '{op}'", code="invalid_config")
+        filters.append({"field": field, "operator": op, "value": f.get("value")})
+    limit = max(1, min(FIND_MAX, int(p.get("limit") or 50)))
+    return filters, limit
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _matches(record: dict, filters: list[dict]) -> bool:
+    """Client-side filtering for providers whose search API cannot express these conditions generically."""
+    for f in filters:
+        actual, want, op = record.get(f["field"]), f["value"], f["operator"]
+        if op == "is_empty":
+            ok = actual in (None, "", [])
+        elif op == "is_not_empty":
+            ok = actual not in (None, "", [])
+        elif op in ("gt", "gte", "lt", "lte"):
+            a, b = _num(actual), _num(want)
+            ok = a is not None and b is not None and {"gt": a > b, "gte": a >= b, "lt": a < b, "lte": a <= b}[op]
+        elif op == "contains":
+            ok = str(want).lower() in str(actual if actual is not None else "").lower()
+        else:
+            same = str(actual if actual is not None else "").strip().lower() == str(want if want is not None else "").strip().lower()
+            ok = same if op == "equals" else not same
+        if not ok:
+            return False
+    return True
+
+
+def _sorted(records: list[dict], p: dict) -> list[dict]:
+    key = p.get("sort_by")
+    if not key:
+        return records
+    present = [r for r in records if r.get(key) not in (None, "")]
+    missing = [r for r in records if r.get(key) in (None, "")]
+    present.sort(key=lambda r: (_num(r[key]) is None, _num(r[key]) if _num(r[key]) is not None else str(r[key]).lower()),
+                 reverse=p.get("order") == "descending")
+    return present + missing
+
+
+def _found(records: list[dict], limit: int, *, note: str | None = None) -> dict:
+    records = records[:limit]
+    out = {"records": records, "count": len(records), "found": bool(records), "first": records[0] if records else None}
+    if note:
+        out["note"] = note
+    return out
+
+
+def _plain(value):
+    return value if isinstance(value, (str, int, float, bool, type(None))) else str(value)
+
+
 # ------------------------------------------------------------------ Google
 
 
@@ -189,7 +260,22 @@ class GoogleSheets(Google):
     service, base_url = "Google Sheets", "https://sheets.googleapis.com"
 
     def actions(self):
-        return {**super().actions(), "create_record": self.append_row, "update_record": self.update_range}
+        return {**super().actions(), "create_record": self.append_row, "update_record": self.update_range, "find_records": self.find}
+
+    def find(self, c: Conn, p: dict) -> dict:
+        """Read a sheet (first row = column names) and filter rows; each record carries its row number for updates."""
+        _need(p, "table")
+        filters, limit = _find_params(p)
+        sheet_id = p.get("database") or c.get("spreadsheet_id")
+        if not sheet_id:
+            raise NodeError("A spreadsheet id is required (node 'database' field or integration setting)", code="invalid_config")
+        rows = self.json(c, "GET", f"/v4/spreadsheets/{sheet_id}/values/{p['table']}").get("values") or []
+        if not rows:
+            return _found([], limit)
+        header = [str(h).strip() for h in rows[0]]
+        records = [{**{header[i]: (row[i] if i < len(row) else "") for i in range(len(header))}, "_row": n}
+                   for n, row in enumerate(rows[1:5001], start=2)]
+        return _found(_sorted([r for r in records if _matches(r, filters)], p), limit)
 
     def append_row(self, c: Conn, p: dict) -> dict:
         _need(p, "table", "data")
@@ -431,12 +517,40 @@ class Notion(Adapter):
         return {"account": self.json(c, "GET", "/v1/users/me").get("name")}
 
     def actions(self):
-        return {**super().actions(), "create_record": self.create, "update_record": self.update}
+        return {**super().actions(), "create_record": self.create, "update_record": self.update, "find_records": self.find}
 
     def create(self, c: Conn, p: dict) -> dict:
         _need(p, "table", "data")
         data = self.json(c, "POST", "/v1/pages", json={"parent": {"database_id": p["table"]}, "properties": p["data"]})
         return {"record_id": data.get("id"), "link": data.get("url")}
+
+    @staticmethod
+    def _value(prop: dict):
+        kind = prop.get("type")
+        v = prop.get(kind)
+        if kind in ("title", "rich_text"):
+            return "".join(t.get("plain_text", "") for t in v or [])
+        if kind in ("select", "status"):
+            return (v or {}).get("name")
+        if kind == "multi_select":
+            return [o.get("name") for o in v or []]
+        if kind == "date":
+            return (v or {}).get("start")
+        if kind in ("people", "relation"):
+            return [o.get("id") for o in v or []]
+        if kind == "formula":
+            return (v or {}).get((v or {}).get("type"))
+        return v
+
+    def find(self, c: Conn, p: dict) -> dict:
+        """Query a database (newest 100 pages) and filter on plain values; Notion's own filters need each property's type."""
+        _need(p, "table")
+        filters, limit = _find_params(p)
+        data = self.json(c, "POST", f"/v1/databases/{p['table']}/query", json={"page_size": 100})
+        records = [{"id": page.get("id"), "url": page.get("url"), **{k: self._value(v) for k, v in (page.get("properties") or {}).items()}}
+                   for page in data.get("results") or []]
+        note = "Only the first 100 pages were searched" if data.get("has_more") else None
+        return _found(_sorted([r for r in records if _matches(r, filters)], p), limit, note=note)
 
     def update(self, c: Conn, p: dict) -> dict:
         _need(p, "record_id", "data")
@@ -451,7 +565,40 @@ class Airtable(Adapter):
         return {"account": self.json(c, "GET", "/v0/meta/whoami").get("id")}
 
     def actions(self):
-        return {**super().actions(), "create_record": self.create, "update_record": self.update}
+        return {**super().actions(), "create_record": self.create, "update_record": self.update, "find_records": self.find}
+
+    @staticmethod
+    def _formula(f: dict) -> str:
+        field = "{" + f["field"].replace("}", "") + "}"
+        raw = f["value"]
+        value = '"' + str(raw if raw is not None else "").replace("\\", "\\\\").replace('"', '\\"') + '"'
+        number = _num(raw)
+        op = f["operator"]
+        if op == "is_empty":
+            return f"OR({field}=BLANK(), {field}='')"
+        if op == "is_not_empty":
+            return f"NOT(OR({field}=BLANK(), {field}=''))"
+        if op == "contains":
+            return f"FIND(LOWER({value}), LOWER({field}&''))"
+        if op in ("gt", "gte", "lt", "lte") and number is not None:
+            return f"{field}{ {'gt': '>', 'gte': '>=', 'lt': '<', 'lte': '<='}[op] }{number}"
+        if op in ("gt", "gte", "lt", "lte"):
+            raise NodeError(f"'{f['field']}' needs a number to compare with", code="invalid_config")
+        cmp = f"LOWER({field}&'')=LOWER({value})"
+        return cmp if op == "equals" else f"NOT({cmp})"
+
+    def find(self, c: Conn, p: dict) -> dict:
+        _need(p, "table")
+        filters, limit = _find_params(p)
+        params: dict = {"maxRecords": limit, "pageSize": min(limit, 100)}
+        if filters:
+            parts = [self._formula(f) for f in filters]
+            params["filterByFormula"] = parts[0] if len(parts) == 1 else f"AND({', '.join(parts)})"
+        if p.get("sort_by"):
+            params["sort[0][field]"] = p["sort_by"]
+            params["sort[0][direction]"] = "desc" if p.get("order") == "descending" else "asc"
+        data = self.json(c, "GET", f"/v0/{self._base(c, p)}/{p['table']}", params=params)
+        return _found([{"id": r.get("id"), **(r.get("fields") or {})} for r in data.get("records") or []], limit)
 
     def _base(self, c: Conn, p: dict) -> str:
         base = p.get("database") or c.get("base_id")
@@ -487,7 +634,26 @@ class Supabase(Adapter):
         return {"account": self.base(c)}
 
     def actions(self):
-        return {**super().actions(), "create_record": self.create, "update_record": self.update}
+        return {**super().actions(), "create_record": self.create, "update_record": self.update, "find_records": self.find}
+
+    def find(self, c: Conn, p: dict) -> dict:
+        """PostgREST query: every condition becomes a server-side filter."""
+        _need(p, "table")
+        filters, limit = _find_params(p)
+        params: list[tuple[str, str]] = [("select", "*"), ("limit", str(limit))]
+        for f in filters:
+            v = "" if f["value"] is None else str(f["value"])
+            op = f["operator"]
+            if op == "is_empty":
+                params.append(("or", f"({f['field']}.is.null,{f['field']}.eq.)"))
+                continue
+            expr = {"equals": f"eq.{v}", "not_equals": f"neq.{v}", "contains": f"ilike.*{v.replace('*', '')}*", "gt": f"gt.{v}",
+                    "gte": f"gte.{v}", "lt": f"lt.{v}", "lte": f"lte.{v}", "is_not_empty": "not.is.null"}[op]
+            params.append((f["field"], expr))
+        if p.get("sort_by"):
+            params.append(("order", f"{p['sort_by']}.{'desc' if p.get('order') == 'descending' else 'asc'}.nullslast"))
+        rows = self.json(c, "GET", f"/rest/v1/{p['table']}", params=params)
+        return _found(rows if isinstance(rows, list) else [], limit)
 
     def create(self, c: Conn, p: dict) -> dict:
         _need(p, "table", "data")
@@ -516,7 +682,8 @@ class PostgreSQL(Adapter):
         try:
             return psycopg.connect(host=host, port=int(c.get("port") or 5432), dbname=str(c.get("database")),
                                    user=str(c.get("username")), password=str(c.get("password")),
-                                   sslmode=str(c.get("sslmode") or "require"), connect_timeout=10)
+                                   sslmode=str(c.get("sslmode") or "require"), connect_timeout=10,
+                                   options="-c statement_timeout=30000")  # no query may hold a workflow step for more than 30 s
         except psycopg.OperationalError as exc:
             raise NodeError("Could not connect to PostgreSQL", code="connection_failed", retryable=True) from exc
 
@@ -525,7 +692,43 @@ class PostgreSQL(Adapter):
             return {"account": conn.execute("select current_database()").fetchone()[0]}
 
     def actions(self):
-        return {"create_record": self.create, "update_record": self.update}
+        return {"create_record": self.create, "update_record": self.update, "find_records": self.find}
+
+    def find(self, c: Conn, p: dict) -> dict:
+        """Parameterised SELECT: identifiers quoted by psycopg, every value bound."""
+        _need(p, "table")
+        filters, limit = _find_params(p)
+        import psycopg
+        from psycopg import sql
+        from psycopg.rows import dict_row
+
+        conds, values = [], []
+        for f in filters:
+            col = sql.Identifier(f["field"])
+            op = f["operator"]
+            if op == "is_empty":
+                conds.append(sql.SQL("({c} IS NULL OR {c}::text = '')").format(c=col))
+            elif op == "is_not_empty":
+                conds.append(sql.SQL("({c} IS NOT NULL AND {c}::text <> '')").format(c=col))
+            elif op == "contains":
+                conds.append(sql.SQL("{}::text ILIKE %s").format(col))
+                values.append("%" + str(f["value"]).replace("%", r"\%").replace("_", r"\_") + "%")
+            else:
+                conds.append(sql.SQL("{} " + {"equals": "=", "not_equals": "<>", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[op] + " %s").format(col))
+                values.append(f["value"])
+        q = sql.SQL("SELECT * FROM {}").format(self._table(p["table"]))
+        if conds:
+            q += sql.SQL(" WHERE ") + sql.SQL(" AND ").join(conds)
+        if p.get("sort_by"):
+            q += sql.SQL(" ORDER BY {} " + ("DESC" if p.get("order") == "descending" else "ASC") + " NULLS LAST").format(sql.Identifier(p["sort_by"]))
+        q += sql.SQL(" LIMIT %s")
+        values.append(limit)
+        try:
+            with self._connect(c) as conn, conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(q, values)
+                return _found([{k: _plain(v) for k, v in row.items()} for row in cur.fetchall()], limit)
+        except psycopg.Error as exc:
+            raise NodeError(f"PostgreSQL error: {type(exc).__name__}", code="database_error") from exc
 
     @staticmethod
     def _table(name: str):
@@ -574,7 +777,27 @@ class HubSpot(Adapter):
         return {"account": str(self.json(c, "GET", "/account-info/v3/details").get("portalId"))}
 
     def actions(self):
-        return {**super().actions(), "create_lead": self.create_lead, "update_record": self.update}
+        return {**super().actions(), "create_lead": self.create_lead, "update_record": self.update, "find_records": self.find}
+
+    def find(self, c: Conn, p: dict) -> dict:
+        """CRM search API: conditions are combined with AND on the server."""
+        filters, limit = _find_params(p)
+        obj = re.sub(r"[^a-z_]", "", str(p.get("object_type") or "contacts").lower()) or "contacts"
+        ops = {"equals": "EQ", "not_equals": "NEQ", "contains": "CONTAINS_TOKEN", "gt": "GT", "gte": "GTE", "lt": "LT", "lte": "LTE",
+               "is_empty": "NOT_HAS_PROPERTY", "is_not_empty": "HAS_PROPERTY"}
+        hs_filters = []
+        for f in filters:
+            item = {"propertyName": f["field"], "operator": ops[f["operator"]]}
+            if f["operator"] not in ("is_empty", "is_not_empty"):
+                item["value"] = f"*{f['value']}*" if f["operator"] == "contains" else str(f["value"])
+            hs_filters.append(item)
+        body: dict = {"limit": min(limit, 100), "filterGroups": [{"filters": hs_filters}] if hs_filters else []}
+        if p.get("properties"):
+            body["properties"] = list(p["properties"])
+        if p.get("sort_by"):
+            body["sorts"] = [{"propertyName": p["sort_by"], "direction": "DESCENDING" if p.get("order") == "descending" else "ASCENDING"}]
+        data = self.json(c, "POST", f"/crm/v3/objects/{obj}/search", json=body)
+        return _found([{"id": r.get("id"), **(r.get("properties") or {})} for r in data.get("results") or []], limit)
 
     def create_lead(self, c: Conn, p: dict) -> dict:
         props = {k: v for k, v in {"email": p.get("email"), "firstname": p.get("first_name"), "lastname": p.get("last_name"),
@@ -608,7 +831,31 @@ class Pipedrive(Adapter):
         return {"account": ((self.json(c, "GET", "/v1/users/me").get("data")) or {}).get("email")}
 
     def actions(self):
-        return {**super().actions(), "create_lead": self.create_lead, "update_record": self.update}
+        return {**super().actions(), "create_lead": self.create_lead, "update_record": self.update, "find_records": self.find}
+
+    def find(self, c: Conn, p: dict) -> dict:
+        """Pipedrive search takes one search term: the first condition's value is the term (on that field), and
+        the remaining conditions are applied to the results."""
+        filters, limit = _find_params(p)
+        obj = {"contacts": "persons", "people": "persons"}.get(str(p.get("object_type") or "persons").lower(), str(p.get("object_type") or "persons").lower())
+        if obj not in ("persons", "organizations", "deals", "leads", "products"):
+            raise NodeError("Pipedrive can search persons, organizations, deals, leads or products", code="invalid_config")
+        term_filter = next((f for f in filters if f["operator"] in ("equals", "contains") and str(f["value"] or "").strip()), None)
+        if not term_filter:
+            raise NodeError("Pipedrive search needs at least one 'equals' or 'contains' condition with a value", code="invalid_config")
+        params = {"term": str(term_filter["value"])[:100], "limit": min(limit, 100), "exact_match": str(term_filter["operator"] == "equals").lower()}
+        if term_filter["field"] in ("name", "email", "phone", "notes", "custom_fields", "title", "address", "code"):
+            params["fields"] = term_filter["field"]
+        data = (self.json(c, "GET", f"/v1/{obj}/search", params=params).get("data")) or {}
+        records = []
+        for hit in data.get("items") or []:
+            item = dict(hit.get("item") or {})
+            for key in ("emails", "phones"):
+                if isinstance(item.get(key), list):
+                    item[key[:-1]] = item[key][0] if item[key] else None
+            records.append(item)
+        rest = [f for f in filters if f is not term_filter]
+        return _found(_sorted([r for r in records if _matches(r, rest)], p), limit)
 
     def create_lead(self, c: Conn, p: dict) -> dict:
         name = " ".join(x for x in [p.get("first_name"), p.get("last_name")] if x) or p.get("email") or "New lead"
@@ -642,7 +889,40 @@ class Salesforce(Adapter):
         return {"account": self.json(c, "GET", "/services/oauth2/userinfo").get("email")}
 
     def actions(self):
-        return {**super().actions(), "create_lead": self.create_lead, "update_record": self.update}
+        return {**super().actions(), "create_lead": self.create_lead, "update_record": self.update, "find_records": self.find}
+
+    @staticmethod
+    def _soql(f: dict) -> str:
+        field = re.sub(r"[^A-Za-z0-9_.]", "", f["field"])
+        v = f["value"]
+        op = f["operator"]
+        if op == "is_empty":
+            return f"{field} = null"
+        if op == "is_not_empty":
+            return f"{field} != null"
+        if isinstance(v, bool):
+            literal = "true" if v else "false"
+        elif _num(v) is not None and op in ("gt", "gte", "lt", "lte"):
+            literal = str(_num(v))
+        else:
+            literal = "'" + str(v if v is not None else "").replace("\\", "\\\\").replace("'", "\\'") + "'"
+        if op == "contains":
+            return f"{field} LIKE '%" + str(v or "").replace("\\", "\\\\").replace("'", "\\'").replace("%", "\\%").replace("_", "\\_") + "%'"
+        return f"{field} {({'equals': '=', 'not_equals': '!=', 'gt': '>', 'gte': '>=', 'lt': '<', 'lte': '<='})[op]} {literal}"
+
+    def find(self, c: Conn, p: dict) -> dict:
+        """SOQL query; values are escaped as SOQL string literals, field and object names restricted to identifiers."""
+        filters, limit = _find_params(p)
+        obj = re.sub(r"[^A-Za-z0-9_]", "", str(p.get("object_type") or "Lead")) or "Lead"
+        fields = [re.sub(r"[^A-Za-z0-9_.]", "", str(x)) for x in (p.get("properties") or ["Id", "Name", "Email"])]
+        q = f"SELECT {', '.join(dict.fromkeys(['Id', *[x for x in fields if x]]))} FROM {obj}"
+        if filters:
+            q += " WHERE " + " AND ".join(self._soql(f) for f in filters)
+        if p.get("sort_by"):
+            q += f" ORDER BY {re.sub(r'[^A-Za-z0-9_.]', '', p['sort_by'])} {'DESC' if p.get('order') == 'descending' else 'ASC'} NULLS LAST"
+        q += f" LIMIT {limit}"
+        data = self.json(c, "GET", f"{self.api}/query", params={"q": q})
+        return _found([{k: v for k, v in r.items() if k != "attributes"} for r in data.get("records") or []], limit)
 
     def create_lead(self, c: Conn, p: dict) -> dict:
         body = {k: v for k, v in {"Email": p.get("email"), "FirstName": p.get("first_name"), "LastName": p.get("last_name") or "Unknown",

@@ -75,7 +75,7 @@ def request(
     url: str,
     *,
     headers: dict | None = None,
-    params: dict | None = None,
+    params: dict | list[tuple[str, str]] | None = None,  # a list allows repeated keys (PostgREST filters)
     json: object | None = None,
     data: object | None = None,
     content: bytes | None = None,

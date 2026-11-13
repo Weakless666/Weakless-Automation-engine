@@ -28,6 +28,7 @@ export const CATEGORY: Record<string, { label: string; color: string }> = {
   trigger: { label: "Triggers", color: "52 211 153" },
   action: { label: "Actions", color: "96 165 250" },
   logic: { label: "Logic", color: "251 191 36" },
+  data: { label: "Data", color: "45 212 191" },
   ai: { label: "AI", color: "139 92 246" },
 };
 

@@ -25,7 +25,7 @@ Automated tests pass for the following (`cd backend && pytest -q`).
 - Cancellation, idempotency keys
 - Crash recovery that refuses to repeat a non-idempotent step; dead-letter queue after repeated infrastructure failure
 - Graph validation (triggers, cycles, handles, unknown node types, loop rules)
-- All 46 node types register and describe themselves; all 46 templates validate
+- All 55 node types register and describe themselves; all 46 templates validate
 
 **Security and tenancy**
 - Unauthenticated access rejected; generic login failures; lockout; logout revocation; CSRF on cookie sessions
@@ -96,7 +96,8 @@ Relative to the brief:
 - **Authentication** - no SSO or passkeys. (Two-factor sign-in with TOTP was added on 2026-11-12, required for staff by default.) (Password reset and invitations were added on 2026-11-12; their emails are untested against a real SMTP server.)
 - **Testing** - 29 browser tests cover the main user journeys on every screen, plus phone (390 px) and tablet (768 px) layouts (added 2026-11-12); not covered: real devices and touch gestures on the builder canvas, sending real notifications, OAuth flows, Stripe checkout, load.
 - **Rate limiting** - security-relevant limits are shared across instances through the database (added 2026-11-12); the general per-client budget is per process.
-- **Per-step hard timeouts** - enforced between steps and by client timeouts, not by interrupting a running step.
+- **Per-step hard timeouts** - enforced between steps and by client timeouts (HTTP, AI, IMAP, SMTP, and a 30 s `statement_timeout` for the PostgreSQL integration), not by interrupting a running step: a step shares its database session with the engine, so abandoning it mid-way would be unsafe.
+- **Find steps** - request shapes for HubSpot, Pipedrive, Salesforce, Airtable, Supabase, Notion and Google Sheets are tested against mocked APIs; PostgreSQL is tested against a real database. Notion, Google Sheets and Pipedrive filter the first page of results on the WAE side (their search APIs need typed or single-term queries) and say so in the output.
 - **Data retention** - configurable hourly clean-up added 2026-11-12 and tested on SQLite; the sweeps have not been timed on PostgreSQL with production-sized tables. Retention is platform-wide, not per plan.
 - **Meta and LinkedIn** - connection test and generic API call only; no purpose-built posting or ads actions.
 

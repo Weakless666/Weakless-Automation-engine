@@ -327,6 +327,10 @@ class WorkflowExecution(Base, Timestamps):
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     created_by: Mapped[uuid.UUID | None] = fk("users.id", nullable=True, ondelete="SET NULL", index=False)
     details_purged_at: Mapped[datetime | None] = ts()  # step log and payloads removed by the retention policy
+    parent_execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("workflow_executions.id", ondelete="SET NULL"), index=True)  # started by a Run Workflow step
+    parent_node_key: Mapped[str | None] = mapped_column(String(64))  # that step, when the parent waits for the result
+    response: Mapped[dict | None] = mapped_column(JSONType)  # set by Respond to Webhook: {status_code, body, content_type}
 
 
 class WorkflowExecutionStep(Base):

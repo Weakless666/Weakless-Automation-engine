@@ -173,7 +173,7 @@ def test_builder_api_draft_publish_versions_and_test_run(client, db, org, worker
     make_user(db, "eng@weakless.pro", platform_role="AUTOMATION_ENGINEER")
     h = hdr(login(client, "eng@weakless.pro"), org.id)
     types = client.get("/api/v1/node-types", headers=h).json()["items"]
-    assert {t["category"] for t in types} == {"trigger", "action", "logic", "ai"} and all("config_schema" in t for t in types)
+    assert {t["category"] for t in types} == {"trigger", "action", "logic", "data", "ai"} and all("config_schema" in t for t in types)
     wf = client.post("/api/v1/workflows", headers=h, json={"name": "Builder flow"}).json()
     d1 = wf_def([TRIG, {"id": "x", "type": "logic.transform", "config": {"fields": {"v": 1}}}], [("t", "x")])
     saved = client.put(f"/api/v1/workflows/{wf['id']}/draft", headers=h, json={"definition": d1, "base_revision": 1})

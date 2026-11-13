@@ -8203,6 +8203,7 @@
           "workflows"
         ],
         "summary": "Retry",
+        "description": "Run again. With ``from_failed_step=true`` the steps that succeeded are not repeated.",
         "operationId": "retry_api_v1_executions__execution_id__retry_post",
         "parameters": [
           {
@@ -8212,6 +8213,16 @@
             "schema": {
               "type": "string",
               "title": "Execution Id"
+            }
+          },
+          {
+            "name": "from_failed_step",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "From Failed Step"
             }
           }
         ],
@@ -23896,6 +23907,37 @@
             ],
             "title": "Details Purged At",
             "description": "When the step log and payloads were removed by the data retention policy"
+          },
+          "can_resume": {
+            "type": "boolean",
+            "title": "Can Resume",
+            "description": "A retry can continue from the failed step (POST .../retry?from_failed_step=true)",
+            "default": false
+          },
+          "resumed_from": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resumed From",
+            "description": "For a retry that continued from a failed step: the original execution and step"
+          },
+          "parent_execution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Execution Id",
+            "description": "The execution whose Run Workflow step started this one"
           }
         },
         "additionalProperties": true,

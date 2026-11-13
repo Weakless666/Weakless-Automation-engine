@@ -494,6 +494,9 @@ class ExecutionDetail(ExecutionOut):
     steps: list[StepOut]
     documents: list[DocumentOut]
     details_purged_at: ISO = Field(None, description="When the step log and payloads were removed by the data retention policy")
+    can_resume: bool = Field(False, description="A retry can continue from the failed step (POST .../retry?from_failed_step=true)")
+    resumed_from: dict[str, Any] | None = Field(None, description="For a retry that continued from a failed step: the original execution and step")
+    parent_execution_id: str | None = Field(None, description="The execution whose Run Workflow step started this one")
 
 
 class ResumedOut(Out):

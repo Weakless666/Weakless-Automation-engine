@@ -15,7 +15,13 @@ def _passthrough(ctx: NodeContext, cfg) -> NodeResult:  # pragma: no cover - the
     return NodeResult(output=ctx.scope.get("trigger", {}))
 
 
-class WebhookConfig(NodeConfig):
+class ResponseMixin(NodeConfig):
+    response_mode: Literal["immediately", "respond_step"] = Field(
+        "immediately", description="'respond_step': wait for a Respond to Webhook step and return its reply to the caller")
+    response_timeout_seconds: int = Field(10, ge=1, le=25, description="How long the caller waits for that reply before getting the default answer")
+
+
+class WebhookConfig(ResponseMixin):
     signature_scheme: Literal["hmac_sha256", "shared_secret", "none"] = Field("hmac_sha256", description="How inbound requests are authenticated")
     rate_limit_per_minute: int = Field(120, ge=1, le=6000)
 
@@ -34,7 +40,7 @@ class ScheduleConfig(NodeConfig):
         return v
 
 
-class FormConfig(NodeConfig):
+class FormConfig(ResponseMixin):
     required_fields: list[str] = Field(default_factory=list, description="Submissions missing these fields are rejected")
     rate_limit_per_minute: int = Field(30, ge=1, le=6000)
 

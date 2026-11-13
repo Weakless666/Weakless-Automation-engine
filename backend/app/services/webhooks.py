@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from urllib.parse import parse_qs
 
 from sqlalchemy import select
@@ -16,7 +17,7 @@ from app.core.errors import AppError, QuotaExceeded
 from app.core.ratelimit import shared_limiter as limiter  # shared across API instances
 from app.core.redact import redact
 from app.core.security import constant_time_equals, hmac_sha256_hex, sha256_hex
-from app.db import set_tenant, utcnow
+from app.db import new_session, set_tenant, utcnow
 from app.models import WebhookEndpoint, WebhookEvent, Workflow, WorkflowVersion
 from app.services.executions import start_execution
 from app.services.workflows import endpoint_aad
@@ -229,7 +230,48 @@ def ingest(db: Session, endpoint_key: str, *, method: str, headers: dict, body: 
     except AppError as exc:
         return finish("failed", exc.message, 200)
     event.execution_id = ex.id
-    return finish("processed", None, 202, {"execution_id": str(ex.id)})
+    extra: dict = {"execution_id": str(ex.id)}
+    if config.get("response_mode") == "respond_step":
+        extra["_wait"] = {"execution_id": str(ex.id), "timeout": max(1, min(25, int(config.get("response_timeout_seconds") or 10)))}
+    return finish("processed", None, 202, extra)
+
+
+def wait_for_response(execution_id: str, timeout: float) -> dict | None:
+    """For a trigger in 'respond_step' mode: run the execution right here if no worker has taken it
+    yet, then wait (at most ``timeout`` seconds) for a Respond to Webhook step. Returns its reply, or
+    None when the workflow finished, failed or ran out of time without replying."""
+    import time
+
+    from sqlalchemy import update
+
+    from app.engine.queue import process_job
+    from app.models import TERMINAL_STATUSES, ExecutionQueueJob, WorkflowExecution
+
+    ex_id = uuid.UUID(execution_id)
+    deadline = time.monotonic() + timeout
+    with new_session(bypass_rls=True) as db:
+        job = db.scalar(select(ExecutionQueueJob).where(ExecutionQueueJob.execution_id == ex_id, ExecutionQueueJob.status == "QUEUED"))
+        claimed = False
+        if job:
+            claimed = db.execute(update(ExecutionQueueJob).where(ExecutionQueueJob.id == job.id, ExecutionQueueJob.status == "QUEUED")
+                                 .values(status="CLAIMED", locked_by="api-inline", locked_at=utcnow(), attempts=ExecutionQueueJob.attempts + 1)
+                                 .execution_options(synchronize_session=False)).rowcount == 1
+            db.commit()
+        job_id = job.id if job else None
+    if claimed:
+        process_job(job_id, "api-inline")  # same code path as a worker: retries, waits and crash rules apply
+    while True:
+        with new_session(bypass_rls=True) as db:
+            ex = db.get(WorkflowExecution, ex_id)
+            if ex is None:
+                return None
+            if ex.response:
+                return dict(ex.response)
+            if ex.status in TERMINAL_STATUSES:
+                return None
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
 
 
 def replay_event(db: Session, event: WebhookEvent) -> WebhookEvent:

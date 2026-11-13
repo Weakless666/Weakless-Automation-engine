@@ -15,9 +15,11 @@ test("executions: filter by status, read the failing step, retry it", async ({ p
   await page.waitForURL(new RegExp(`/executions/${badRun}$`));
   await expect(page.getByText("Call partner", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("ssrf_blocked").first()).toBeVisible();
-  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.getByRole("button", { name: "Run again from the start" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry from failed step" }).click();
   await page.waitForURL((u) => u.pathname.startsWith("/executions/") && !u.pathname.endsWith(badRun));
   await expect(page.getByText("This is a retry of")).toBeVisible();
+  await expect(page.getByText(/continued from the failed step \(call\); earlier steps were not repeated/)).toBeVisible();
 });
 
 test("a run waiting for an external signal can be resumed from its page", async ({ page, api, org }) => {

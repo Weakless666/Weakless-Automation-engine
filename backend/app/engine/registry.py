@@ -30,7 +30,7 @@ class EmptyConfig(NodeConfig):
 class Wait:
     """Returned by a handler to suspend the execution durably."""
 
-    kind: str  # delay | external | approval
+    kind: str  # delay | external | approval | agent | subworkflow
     resume_at: datetime | None = None  # delay: when to resume; external/approval: optional timeout
     data: dict = field(default_factory=dict)
 
@@ -143,7 +143,7 @@ def load_nodes() -> None:
     with _load_lock:
         if _loaded:
             return
-        from app.engine.nodes import actions, ai, logic, triggers  # noqa: F401
+        from app.engine.nodes import actions, ai, data, flow, logic, triggers  # noqa: F401
 
         _loaded = True
 
