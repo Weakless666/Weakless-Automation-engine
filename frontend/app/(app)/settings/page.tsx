@@ -212,6 +212,7 @@ const RETENTION: { key: string; label: string; hint: string }[] = [
   { key: "usage_detail_days", label: "Usage detail", hint: "Merged into daily totals per workflow; billing and quota numbers do not change." },
   { key: "notifications_days", label: "Notifications", hint: "In-app notifications and channel delivery logs." },
   { key: "queue_jobs_days", label: "Completed queue jobs", hint: "Dead letters are kept until handled." },
+  { key: "files_days", label: "Files made by workflows", hint: "Downloads, email attachments and generated files. Applies to new files; uploads are kept until deleted." },
   { key: "audit_days", label: "Audit log and sign-in history", hint: "At least 30 days. Leave empty to keep forever." },
 ];
 

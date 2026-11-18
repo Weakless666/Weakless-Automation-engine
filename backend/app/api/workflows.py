@@ -1,24 +1,29 @@
 """Workflows, versions, executions, approvals and the dead-letter queue."""
 from __future__ import annotations
 
+import asyncio
+import json
+import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
+from fastapi.responses import StreamingResponse
 from pydantic import Field
 from sqlalchemy import func, select
+from starlette.concurrency import run_in_threadpool
 
 from app.api import schemas
 from app.api.common import ApiRoute
 from app.api.common import Body, Paging, iso, owned, paginate, parse_dt, parse_uuid
 from app.config import get_settings
 from app.core.errors import Conflict, NotFound, ValidationFailed
-from app.db import set_tenant, utcnow
+from app.db import new_session, set_tenant, utcnow
 from app.deps import Ctx, optional_org_ctx, org_ctx, platform_ctx
 from app.engine.graph import validate_definition
 from app.engine.registry import all_specs
 from app.models import (
-    EXECUTION_STATUSES, ApprovalRequest, ExecutionQueueJob, GeneratedDocument, Organization, WebhookEndpoint, Workflow,
+    EXECUTION_STATUSES, TERMINAL_STATUSES, ApprovalRequest, ExecutionQueueJob, GeneratedDocument, Organization, WebhookEndpoint, Workflow,
     WorkflowExecution, WorkflowExecutionStep, WorkflowSchedule, WorkflowVersion, Workspace,
 )
 from app.models import MailboxWatch
@@ -328,8 +333,72 @@ def _get_execution(ctx: Ctx, execution_id: str) -> WorkflowExecution:
 
 @router.get("/executions/{execution_id}", response_model=schemas.ExecutionDetail)
 def get_execution(execution_id: str, ctx: Ctx = Depends(optional_org_ctx("executions.read"))) -> dict:
-    db = ctx.db
+    return execution_detail(ctx.db, _get_execution(ctx, execution_id))
+
+
+STREAM_POLL_SECONDS = 0.4
+STREAM_MAX_SECONDS = 600  # then the stream ends and the browser reconnects
+STREAM_HEARTBEAT_SECONDS = 15
+
+
+def _fingerprint(db, execution_id) -> tuple | None:
+    """Cheap change detector for one execution: its status and the progress of its steps."""
+    S = WorkflowExecutionStep
+    row = db.execute(select(WorkflowExecution.status, WorkflowExecution.updated_at, WorkflowExecution.cancel_requested)
+                     .where(WorkflowExecution.id == execution_id)).first()
+    if row is None:
+        return None
+    steps = db.execute(select(func.count(), func.max(S.started_at), func.max(S.finished_at)).where(S.execution_id == execution_id)).first()
+    return (row[0], str(row[1]), row[2], steps[0], str(steps[1]), str(steps[2]))
+
+
+@router.get("/executions/{execution_id}/stream", response_class=StreamingResponse, responses={200: {"content": {"text/event-stream": {}}, "description":
+            "Server-sent events: `execution` (the same body as GET /executions/{id}) whenever something changes, `end` when it is finished or the stream is recycled"}})
+async def stream_execution(execution_id: str, request: Request, ctx: Ctx = Depends(optional_org_ctx("executions.read"))):
+    """Live updates for one execution without polling from the browser. Works with any number of API
+    instances: each stream watches the database through short-lived sessions."""
     ex = _get_execution(ctx, execution_id)
+    ex_id = ex.id
+    ctx.db.rollback()
+    ctx.db.close()  # do not hold a pooled connection for the life of the stream
+
+    def snapshot(last: tuple | None) -> tuple[tuple | None, dict | None, bool]:
+        with new_session(bypass_rls=True) as db:  # access was checked above; this session only reads this execution
+            fp = _fingerprint(db, ex_id)
+            if fp is None:
+                return None, None, True
+            if fp == last:
+                return fp, None, fp[0] in TERMINAL_STATUSES
+            row = db.get(WorkflowExecution, ex_id)
+            body = schemas.ExecutionDetail.model_validate(execution_detail(db, row)).model_dump(mode="json", exclude_unset=True)
+            return fp, body, row.status in TERMINAL_STATUSES
+
+    async def events():
+        last, started, beat = None, time.monotonic(), time.monotonic()
+        yield "retry: 2000\n\n"
+        while True:
+            if await request.is_disconnected():
+                return
+            last, body, finished = await run_in_threadpool(snapshot, last)
+            if body is not None:
+                yield f"event: execution\ndata: {json.dumps(body, separators=(',', ':'))}\n\n"
+                beat = time.monotonic()
+            if finished:
+                yield "event: end\ndata: {\"reason\":\"finished\"}\n\n"
+                return
+            if time.monotonic() - started > STREAM_MAX_SECONDS:
+                yield "event: end\ndata: {\"reason\":\"recycle\"}\n\n"
+                return
+            if time.monotonic() - beat > STREAM_HEARTBEAT_SECONDS:
+                yield ": keep-alive\n\n"
+                beat = time.monotonic()
+            await asyncio.sleep(STREAM_POLL_SECONDS)
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+
+def execution_detail(db, ex: WorkflowExecution) -> dict:
     wf = db.get(Workflow, ex.workflow_id)
     steps = db.scalars(select(WorkflowExecutionStep).where(WorkflowExecutionStep.execution_id == ex.id).order_by(WorkflowExecutionStep.sequence).limit(2000)).all()
     docs = db.scalars(select(GeneratedDocument).where(GeneratedDocument.execution_id == ex.id)).all()

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import { useLiveExecution } from "@/lib/live";
 import { ChevronDown, ChevronRight, RefreshCw, Square } from "lucide-react";
 import { api } from "@/lib/api";
 import { useOrgKey, useSession } from "@/lib/session";
@@ -40,8 +41,7 @@ export default function ExecutionPage({ params }: { params: Promise<{ id: string
   const key = useOrgKey();
   const router = useRouter();
   const { can } = useSession();
-  const q = useQuery({ queryKey: [key, "execution", id], queryFn: () => api(`/executions/${id}`),
-    refetchInterval: (query) => (query.state.data && LIVE.includes((query.state.data as any).status) ? 2000 : false) });
+  const q = useLiveExecution([key, "execution", id], id);
   const cancel = useMutation({ mutationFn: () => api(`/executions/${id}/cancel`, { method: "POST" }), onSuccess: () => q.refetch() });
   const retry = useMutation({ mutationFn: (fromStep: boolean) => api(`/executions/${id}/retry`, { method: "POST", params: fromStep ? { from_failed_step: true } : undefined }),
     onSuccess: (e: any) => router.push(`/executions/${e.id}`) });
@@ -55,7 +55,10 @@ export default function ExecutionPage({ params }: { params: Promise<{ id: string
     <>
       <div className="mb-2 text-xs text-muted"><Link href="/executions" className="hover:text-fg">Executions</Link> / <span className="font-mono">{e.id}</span></div>
       <PageHeader title={e.workflow_name ?? "Execution"}
-        description={<span className="flex flex-wrap items-center gap-2"><StatusBadge status={e.status} />{e.is_test && <span className="text-2xs uppercase">Test run</span>}
+        description={<span className="flex flex-wrap items-center gap-2"><StatusBadge status={e.status} />
+          {q.mode === "live" && <span className="flex items-center gap-1 text-2xs font-medium uppercase tracking-wider text-success" title="Updates arrive as they happen"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" aria-hidden />Live</span>}
+          {q.mode === "polling" && <span className="text-2xs uppercase tracking-wider text-muted" title="The live connection is unavailable; refreshing every 2 seconds">Refreshing</span>}
+          {e.is_test && <span className="text-2xs uppercase">Test run</span>}
           <span>Trigger: {e.trigger_type.replace(/_/g, " ")}</span>{e.version && <span>- version {e.version}</span>}<span>- started {fmtDate(e.started_at ?? e.created_at)}</span><span>- {fmtDuration(e.duration_ms)}</span></span>}
         actions={manage && <>
           {LIVE.includes(e.status) && <Button variant="danger" loading={cancel.isPending} onClick={() => window.confirm("Cancel this execution?") && cancel.mutate()}><Square className="h-3.5 w-3.5" /> Cancel</Button>}

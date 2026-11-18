@@ -47,6 +47,22 @@ def _claim(db: Session, watch: MailboxWatch, now) -> bool:
     return res.rowcount == 1
 
 
+def _save_attachments(db: Session, watch: MailboxWatch, message: dict, contents: list[bytes]) -> None:
+    """Store each attachment as a file and add its reference to the trigger payload. An attachment that
+    cannot be stored (too large, storage full, empty) is kept as metadata with the reason."""
+    from app.services.files import ref, save_file, workflow_file_expiry
+
+    expires = workflow_file_expiry(db)
+    for meta, content in zip(message["attachments"], contents):
+        try:
+            with db.begin_nested():
+                f = save_file(db, watch.organization_id, meta["filename"] or "attachment", content, content_type=meta["content_type"],
+                              source="mailbox", expires_at=expires)
+            meta.update(ref(f))
+        except AppError as exc:
+            meta["not_saved"] = exc.message
+
+
 def poll_watch(db: Session, watch: MailboxWatch) -> int:
     """Poll one mailbox; returns the number of executions started. Raises NodeError on mailbox problems."""
     from app.integrations import imap
@@ -66,9 +82,13 @@ def poll_watch(db: Session, watch: MailboxWatch) -> int:
             watch.uidvalidity, watch.last_uid = state.uidvalidity, state.highest  # start from now, never replay a folder
             db.commit()
             return 0
+        keep_files = bool((watch.filters or {}).get("save_attachments"))
         for uid in state.uids[:PER_POLL]:
-            message = imap.parse(imap.fetch(client, uid))
+            contents: list[bytes] = []
+            message = imap.parse(imap.fetch(client, uid), contents if keep_files else None)
             if _matches(watch.filters or {}, message):
+                if keep_files:
+                    _save_attachments(db, watch, message, contents)
                 payload = {**message, "folder": watch.folder, "uid": uid, "mailbox": integration.name}
                 ex = start_execution(db, wf, trigger_type="mailbox", trigger_node=watch.node_key, payload=payload,
                                      idempotency_key=f"mailbox:{watch.id}:{state.uidvalidity}:{uid}")

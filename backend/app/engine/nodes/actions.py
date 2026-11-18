@@ -27,6 +27,32 @@ def _run(ctx: NodeContext, integration_id: str, action: str, params: dict, provi
 EMAIL_PROVIDERS = ["gmail", "outlook", "microsoft_365", "smtp"]
 
 
+MAX_ATTACHMENTS_BYTES = 20 * 1024 * 1024
+
+
+def _load_file(ctx: NodeContext, file: Any):
+    """A stored file of this organization, from an id or a file reference produced by an earlier step."""
+    from app.core.errors import AppError
+    from app.services.files import get_file
+
+    try:
+        return get_file(ctx.db, ctx.organization_id, file, with_data=True)
+    except AppError:
+        raise NodeError("File not found in this organization (it may have expired)", code="file_not_found") from None
+
+
+def _store(ctx: NodeContext, name: str, content: bytes, content_type: str) -> dict:
+    from app.core.errors import AppError
+    from app.services.files import ref, save_file, workflow_file_expiry
+
+    try:
+        f = save_file(ctx.db, ctx.organization_id, name, content, content_type=content_type, source="workflow",
+                      execution_id=ctx.execution.id, expires_at=workflow_file_expiry(ctx.db))
+    except AppError as exc:
+        raise NodeError(exc.message, code=exc.code) from exc
+    return ref(f)
+
+
 class SendEmailConfig(NodeConfig):
     integration_id: str = _ID
     to: str = Field(..., min_length=3, description="Recipient(s), comma separated")
@@ -34,12 +60,21 @@ class SendEmailConfig(NodeConfig):
     body: str = Field("", description="Plain-text body")
     html: str | None = Field(None, description="Optional HTML body")
     cc: str | None = None
+    attachments: list[Any] = Field(default_factory=list, max_length=10,
+                                   description="Stored files to attach: file ids or file outputs of earlier steps, e.g. {{ nodes.download.file }}")
 
 
-@node("action.send_email", "action", "Send Email", "Send an email through Gmail, Outlook or SMTP.", SendEmailConfig,
+@node("action.send_email", "action", "Send Email", "Send an email through Gmail, Outlook or SMTP, with optional file attachments.", SendEmailConfig,
       providers=EMAIL_PROVIDERS, idempotent=False, output_schema={"message_id": {"type": "string"}}, icon="mail")
 def send_email(ctx: NodeContext, cfg: SendEmailConfig) -> NodeResult:
-    return NodeResult(output=_run(ctx, cfg.integration_id, "send_email", cfg.model_dump(exclude={"integration_id"}), EMAIL_PROVIDERS))
+    params = cfg.model_dump(exclude={"integration_id", "attachments"})
+    files = [_load_file(ctx, a) for a in cfg.attachments if a not in (None, "")]
+    if sum(f.size for f in files) > MAX_ATTACHMENTS_BYTES:
+        raise NodeError("Attachments may total at most 20 MB per email", code="attachment_too_large")
+    if files:
+        params["attachments"] = [{"name": f.name, "content_type": f.content_type, "content": f.data} for f in files]
+    out = _run(ctx, cfg.integration_id, "send_email", params, EMAIL_PROVIDERS)
+    return NodeResult(output={**out, "attachments": [f.name for f in files]} if files else out)
 
 
 class WhatsAppConfig(NodeConfig):
@@ -237,10 +272,22 @@ class HttpRequestConfig(NodeConfig):
     body: Any = Field(None, description="JSON body for non-GET requests")
     timeout_seconds: float = Field(30, ge=1, le=120)
     fail_on_error_status: bool = Field(True, description="Treat HTTP 4xx/5xx as a failure")
+    save_response_as_file: bool = Field(False, description="Store the response (a PDF, image, export...) as a file instead of reading it as text")
+    file_name: str = Field("", max_length=300, description="Name for the saved file (default: taken from the response or URL)")
 
 
-@node("action.http_request", "action", "HTTP Request", "Call any public HTTP endpoint. Internal addresses are blocked.", HttpRequestConfig,
-      idempotent=False, output_schema={"status": {"type": "integer"}, "body": {}, "headers": {"type": "object"}}, icon="globe")
+def _download_name(resp, url: str, wanted: str) -> str:
+    import re as _re
+    from urllib.parse import unquote, urlsplit
+
+    if wanted:
+        return wanted
+    m = _re.search(r"filename\*?=(?:UTF-8'')?\"?([^\";]+)", resp.headers.get("content-disposition", ""), _re.I)
+    return unquote(m.group(1)) if m else (unquote(urlsplit(url).path.rsplit("/", 1)[-1]) or "download")
+
+
+@node("action.http_request", "action", "HTTP Request", "Call any public HTTP endpoint, or download a file from one. Internal addresses are blocked.", HttpRequestConfig,
+      idempotent=False, output_schema={"status": {"type": "integer"}, "body": {}, "headers": {"type": "object"}, "file": {"type": "object"}}, icon="globe")
 def http_request(ctx: NodeContext, cfg: HttpRequestConfig) -> NodeResult:
     for k, v in cfg.headers.items():
         if k.lower() in ("authorization", "x-api-key", "api-key", "cookie") and len(v) >= 6:
@@ -250,6 +297,12 @@ def http_request(ctx: NodeContext, cfg: HttpRequestConfig) -> NodeResult:
                         json=cfg.body if cfg.method != "GET" and cfg.body not in (None, "") else None, timeout=cfg.timeout_seconds)
     if cfg.fail_on_error_status:
         http.raise_for_status(resp, "HTTP request")
+    kept = {k: v for k, v in resp.headers.items() if k.lower() in ("content-type", "location", "retry-after", "etag")}
+    if cfg.save_response_as_file:
+        if not resp.content:
+            raise NodeError("The response was empty, so there is no file to save", code="empty_response")
+        file = _store(ctx, _download_name(resp, cfg.url, cfg.file_name), resp.content, resp.headers.get("content-type", ""))
+        return NodeResult(output={"status": resp.status_code, "file": file, "headers": kept})
     try:
         body: Any = resp.json()
     except ValueError:
@@ -298,16 +351,35 @@ FILE_PROVIDERS = ["google_drive", "google_docs", "microsoft_365"]
 
 class UploadFileConfig(NodeConfig):
     integration_id: str = _ID
-    name: str = Field(..., min_length=1, max_length=300)
-    content: str = Field(..., description="Text content, e.g. {{ nodes.doc.content }}")
+    file: Any = Field(None, description="A stored file to upload: a file id or a file output of an earlier step. Leave empty to upload text")
+    name: str = Field("", max_length=300, description="File name (default: the stored file's name)")
+    content: str = Field("", description="Text content when no stored file is given, e.g. {{ nodes.doc.content }}")
     content_type: str = "text/plain"
     folder_id: str | None = None
 
 
-@node("action.upload_file", "action", "Upload File", "Upload text content to Google Drive, Google Docs or OneDrive.", UploadFileConfig,
+@node("action.upload_file", "action", "Upload File", "Upload a stored file or text content to Google Drive, Google Docs or OneDrive.", UploadFileConfig,
       providers=FILE_PROVIDERS, idempotent=False, output_schema={"file_id": {"type": "string"}, "link": {"type": "string"}}, icon="upload")
 def upload_file(ctx: NodeContext, cfg: UploadFileConfig) -> NodeResult:
-    return NodeResult(output=_run(ctx, cfg.integration_id, "upload_file", cfg.model_dump(exclude={"integration_id"}), FILE_PROVIDERS))
+    params = cfg.model_dump(exclude={"integration_id", "file"})
+    if cfg.file not in (None, ""):
+        f = _load_file(ctx, cfg.file)
+        params.update(name=cfg.name or f.name, content=f.data, content_type=f.content_type)
+    elif not cfg.name or not cfg.content:
+        raise NodeError("Give a stored file, or a name and text content", code="invalid_config")
+    return NodeResult(output=_run(ctx, cfg.integration_id, "upload_file", params, FILE_PROVIDERS))
+
+
+class SaveFileConfig(NodeConfig):
+    name: str = Field(..., min_length=1, max_length=300, description="File name, e.g. report-{{ now | truncate(10, '') }}.csv")
+    content: str = Field(..., min_length=1, description="Text content (CSV, JSON, HTML, Markdown...) built from workflow data")
+    content_type: str = Field("text/plain", max_length=200)
+
+
+@node("action.save_file", "action", "Save as File", "Turn text built in the workflow (a CSV, report or JSON export) into a stored file you can attach, upload or download.",
+      SaveFileConfig, output_schema={"file": {"type": "object"}}, icon="file-plus")
+def save_file_node(ctx: NodeContext, cfg: SaveFileConfig) -> NodeResult:
+    return NodeResult(output={"file": _store(ctx, cfg.name, cfg.content.encode(), cfg.content_type)})
 
 
 CALENDAR_PROVIDERS = ["google_calendar", "outlook", "microsoft_365"]

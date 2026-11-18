@@ -126,8 +126,9 @@ def _addresses(values: list[str]) -> list[dict]:
     return [{"name": n, "email": a} for n, a in getaddresses(values) if a]
 
 
-def parse(raw: bytes) -> dict:
-    """The trigger payload for one message: headers, text and HTML bodies, attachment metadata."""
+def parse(raw: bytes, contents: list | None = None) -> dict:
+    """The trigger payload for one message: headers, text and HTML bodies, attachment metadata.
+    When ``contents`` is a list, each attachment's bytes are appended to it (same order as the metadata)."""
     msg = email.message_from_bytes(raw, policy=email.policy.default)
 
     def body(kind: str, limit: int) -> str:
@@ -149,6 +150,8 @@ def parse(raw: bytes) -> dict:
     for part in msg.iter_attachments():
         content = part.get_payload(decode=True) or b""
         attachments.append({"filename": part.get_filename() or "", "content_type": part.get_content_type(), "size": len(content)})
+        if contents is not None:
+            contents.append(content)
     text = body("plain", MAX_TEXT)
     html = body("html", MAX_HTML)
     if not text and html:

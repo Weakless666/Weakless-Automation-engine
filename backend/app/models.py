@@ -20,6 +20,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -929,6 +930,27 @@ class UsageCounter(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class StoredFile(Base):
+    """A binary file owned by an organization: uploaded by a person, or produced by a workflow
+    (downloads, mail attachments, generated files). Content lives in the database so every API
+    instance and worker sees it and backups cover it; ``data`` is only loaded when asked for."""
+
+    __tablename__ = "files"
+    __table_args__ = (Index("ix_files_org_created", "organization_id", "created_at"), Index("ix_files_expires", "expires_at"))
+    id: Mapped[uuid.UUID] = pk()
+    organization_id: Mapped[uuid.UUID] = org_fk()
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(200), default="application/octet-stream", nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), default="upload", nullable=False)  # upload | workflow | mailbox
+    execution_id: Mapped[uuid.UUID | None] = fk("workflow_executions.id", nullable=True, ondelete="SET NULL")
+    created_by: Mapped[uuid.UUID | None] = fk("users.id", nullable=True, ondelete="SET NULL", index=False)
+    expires_at: Mapped[datetime | None] = ts()  # removed by the retention sweep; NULL = kept until deleted
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, deferred=True)
+
+
 class RateLimitCounter(Base):
     """Shared rate-limit windows (see app/core/ratelimit.py). ``bucket`` is a SHA-256 of the limit key."""
 
@@ -991,4 +1013,5 @@ TENANT_TABLES = (
     "app_event_subscriptions", "usage_counters",  # 0006
     "mailbox_watches",  # 0008
     "content_items",  # 0009
+    "files",  # 0011
 )

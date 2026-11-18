@@ -250,6 +250,23 @@ class TeamOut(Out):
     kpis: dict[str, float]
 
 
+class FileOut(Out):
+    id: str
+    file_id: str = Field(description="Same as id; the shape workflow steps pass around")
+    name: str
+    content_type: str
+    size: int
+    sha256: str
+    source: str = Field(description="upload, workflow or mailbox")
+    execution_id: str | None
+    expires_at: ISO
+    created_at: ISO
+
+
+class FilePage(Page[FileOut]):
+    storage: dict[str, int] = Field(description="used_bytes, limit_bytes and max_file_bytes for this organization")
+
+
 class RetentionRun(Out):
     policy: dict[str, int | None] = Field(description="Days kept per category; null keeps that data forever")
     result: dict[str, int] = Field(description="Rows deleted, cleared or merged per category in this run")

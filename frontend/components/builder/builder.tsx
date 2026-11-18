@@ -11,6 +11,7 @@ import "@xyflow/react/dist/style.css";
 import clsx from "clsx";
 import { AlertTriangle, ArrowLeft, Check, Copy, FlaskConical, History, Keyboard, LayoutGrid, Play, Plus, Redo2, Rocket, Save, Search, Trash2, Undo2, X } from "lucide-react";
 import { samplePaths, type DataOption } from "@/components/data-picker";
+import { useLiveExecution } from "@/lib/live";
 import { api, errorMessage } from "@/lib/api";
 import { useLocateOrg, useOrgKey, useSession } from "@/lib/session";
 import { fmtDate, fmtDuration, fmtRelative } from "@/lib/format";
@@ -310,10 +311,7 @@ function TestDialog({ open, onClose, workflowId, save, onRun }: { open: boolean;
   const [execId, setExecId] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [starting, setStarting] = useState(false);
-  const exec = useQuery({
-    queryKey: ["test-exec", execId], queryFn: () => api(`/executions/${execId}`), enabled: !!execId,
-    refetchInterval: (q) => (q.state.data && ["COMPLETED", "FAILED", "CANCELLED", "WAITING"].includes((q.state.data as any).status) ? false : 1000),
-  });
+  const exec = useLiveExecution(["test-exec", execId], execId); // steps light up on the canvas as they run
   useEffect(() => { if (exec.data) onRun(exec.data.steps); }, [exec.data, onRun]);
   async function start() {
     setError(null);

@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     job_visibility_timeout_seconds: int = 300
     job_max_attempts: int = 3
     default_execution_timeout_seconds: int = 900
+    file_max_mb: int = 25  # largest single stored file
+    org_storage_mb: int = 2048  # stored files per organization
     default_org_concurrency: int = 5
 
     allow_private_network: bool = False  # SSRF guard: allow workflow HTTP calls to private IPs

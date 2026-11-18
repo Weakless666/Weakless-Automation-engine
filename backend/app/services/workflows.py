@@ -217,7 +217,8 @@ def sync_mailbox_watches(db: Session, wf: Workflow, nodes: list[dict]) -> None:
             raise ValidationFailed(f"Mailbox Trigger '{n['id']}': the selected IMAP Mailbox integration does not exist in this organization")
         wanted[n["id"]] = {"integration_id": integration_id, "folder": str(cfg.get("folder") or "INBOX")[:200],
                            "poll_minutes": max(1, min(60, int(cfg.get("poll_minutes") or 2))), "mark_seen": bool(cfg.get("mark_as_read")),
-                           "filters": {"from_contains": str(cfg.get("from_contains") or ""), "subject_contains": str(cfg.get("subject_contains") or "")}}
+                           "filters": {"from_contains": str(cfg.get("from_contains") or ""), "subject_contains": str(cfg.get("subject_contains") or ""),
+                                       "save_attachments": bool(cfg.get("save_attachments"))}}
     existing = {w.node_key: w for w in db.scalars(select(MailboxWatch).where(MailboxWatch.workflow_id == wf.id))}
     for key, watch in existing.items():
         if key not in wanted:

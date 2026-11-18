@@ -15,6 +15,8 @@ entry is a number of days, or ``None`` to keep that data forever:
   unchanged, so quotas, billing and charts read the same numbers.
 * ``notifications_days`` - delete in-app notifications and channel delivery logs.
 * ``queue_jobs_days`` - delete completed queue jobs (dead letters are kept).
+* ``files_days`` - how long files created by workflows (downloads, mail attachments, generated
+  files) are kept; the expiry is stamped on each file when it is created. Uploaded files are kept.
 * ``audit_days`` - delete audit log and sign-in history. Off by default.
 
 Finished shared rate-limit windows are removed on every run. Expired sign-in sessions, account links and OAuth states are always removed a week
@@ -46,6 +48,7 @@ DEFAULT_POLICY: dict[str, int | None] = {
     "usage_detail_days": 62,
     "notifications_days": 90,
     "queue_jobs_days": 7,
+    "files_days": 30,
     "audit_days": None,
 }
 MINIMUM_DAYS = {"audit_days": 30}  # everything else: at least 1 day
@@ -204,8 +207,10 @@ def run_retention(db: Session, now: datetime | None = None) -> dict[str, int]:
         + _delete_by_id(db, UserToken, select(UserToken.id).where(UserToken.expires_at < expired))
         + _delete_by_id(db, OAuthState, select(OAuthState.id).where(OAuthState.expires_at < expired)))
     from app.core.ratelimit import purge_expired
+    from app.services.files import purge_expired as purge_files
 
     out["rate_limit_windows_deleted"] = purge_expired(db, now.timestamp())
+    out["files_deleted"] = purge_files(db, now)  # files carry their own expiry, set when a workflow created them
     if any(out.values()):
         log.info("retention: %s", ", ".join(f"{k}={v}" for k, v in out.items() if v))
     return out

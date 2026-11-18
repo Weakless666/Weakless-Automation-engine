@@ -58,14 +58,16 @@ PERMISSIONS: dict[str, str] = {
     "content.read": "View the content calendar",
     "content.write": "Create and edit content calendar items",
     "content.approve": "Approve or reject content before it is published",
+    "files.read": "View and download stored files",
+    "files.write": "Upload and delete stored files",
 }
 
 _ALL = set(PERMISSIONS)
 _ORG_READ = {
     "org.read", "members.read", "workflows.read", "executions.read", "agents.read", "knowledge.read",
-    "integrations.read", "webhooks.read", "templates.read", "analytics.read", "billing.read", "content.read",
+    "integrations.read", "webhooks.read", "templates.read", "analytics.read", "billing.read", "content.read", "files.read",
 }
-_CONTENT = {"content.write", "content.approve"}
+_CONTENT = {"content.write", "content.approve", "files.write"}
 
 ROLE_DEFAULTS: dict[str, tuple[str, set[str]]] = {
     "SUPER_ADMIN": ("Super Admin", _ALL),
@@ -92,8 +94,9 @@ ROLE_DEFAULTS: dict[str, tuple[str, set[str]]] = {
     "CLIENT_MEMBER": ("Client Member", {
         "org.read", "members.read", "workflows.read", "workflows.execute", "executions.read", "agents.read",
         "agents.run", "knowledge.read", "integrations.read", "templates.read", "analytics.read", "content.read", "content.write",
+        "files.read", "files.write",
     }),
-    "VIEWER": ("Viewer", {"org.read", "workflows.read", "executions.read", "agents.read", "templates.read", "analytics.read", "content.read"}),
+    "VIEWER": ("Viewer", {"org.read", "workflows.read", "executions.read", "agents.read", "templates.read", "analytics.read", "content.read", "files.read"}),
 }
 
 _cache: dict[str, set[str]] = {}

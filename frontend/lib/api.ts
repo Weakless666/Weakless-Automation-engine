@@ -65,6 +65,45 @@ export async function api<T = any>(path: string, opts: Options = {}): Promise<T>
   return data as T;
 }
 
+function fail(res: Response, data: any): never {
+  const err = data?.error;
+  throw new ApiError(res.status, err?.code ?? "error", err?.message ?? `Request failed (${res.status})`, err?.details);
+}
+
+/** Upload one file as multipart form data (the JSON client above cannot carry binary bodies). */
+export async function apiUpload<T = any>(path: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+  const headers: Record<string, string> = {};
+  if (csrfToken) headers["X-WAE-CSRF"] = csrfToken;
+  if (organizationId) headers["X-Organization-Id"] = organizationId;
+  let res: Response;
+  try {
+    res = await fetch(`/api/v1${path}`, { method: "POST", headers, credentials: "same-origin", body });
+  } catch {
+    throw new ApiError(0, "network_error", "Cannot reach the server. Check your connection and try again.");
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) fail(res, data);
+  return data as T;
+}
+
+/** Fetch a binary response and hand it to the browser as a download. */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (organizationId) headers["X-Organization-Id"] = organizationId;
+  const res = await fetch(`/api/v1${path}`, { headers, credentials: "same-origin" });
+  if (!res.ok) fail(res, await res.json().catch(() => null));
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 export type Page<T> = { items: T[]; total: number; limit: number; offset: number };
 
 export function errorMessage(e: unknown): string {

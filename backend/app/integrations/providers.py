@@ -112,7 +112,16 @@ def _mime(p: dict, sender: str = "") -> EmailMessage:
     msg.set_content(str(p.get("body") or ""))
     if p.get("html"):
         msg.add_alternative(str(p["html"]), subtype="html")
+    for a in p.get("attachments") or []:  # [{name, content_type, content: bytes}] resolved from stored files by the node
+        main, _, sub = str(a.get("content_type") or "application/octet-stream").partition("/")
+        msg.add_attachment(a["content"], maintype=main or "application", subtype=sub or "octet-stream", filename=str(a.get("name") or "attachment"))
     return msg
+
+
+def _bytes(p: dict) -> bytes:
+    """File content for upload actions: bytes from a stored file, or text."""
+    content = p.get("content")
+    return content if isinstance(content, (bytes, bytearray)) else str(content if content is not None else "").encode()
 
 
 def _need(p: dict, *names: str) -> None:
@@ -250,7 +259,7 @@ class GoogleDrive(Google):
             meta["parents"] = [p["folder_id"]]
         files = {
             "metadata": (None, _json.dumps(meta), "application/json; charset=UTF-8"),
-            "file": (p["name"], str(p["content"]).encode(), p.get("content_type") or "text/plain"),
+            "file": (p["name"], _bytes(p), p.get("content_type") or "text/plain"),
         }
         data = self.json(c, "POST", "/upload/drive/v3/files", params={"uploadType": "multipart", "fields": "id,name,webViewLink"}, files=files)
         return {"file_id": data.get("id"), "name": data.get("name"), "link": data.get("webViewLink")}
@@ -332,6 +341,12 @@ class Microsoft(Adapter):
             "body": {"contentType": "HTML" if p.get("html") else "Text", "content": p.get("html") or p.get("body") or ""},
             "toRecipients": [{"emailAddress": {"address": a.strip()}} for a in ",".join(to).split(",") if a.strip()],
         }, "saveToSentItems": True}
+        if p.get("attachments"):  # Graph accepts inline attachments up to about 3 MB each
+            if any(len(a["content"]) > 3 * 1024 * 1024 for a in p["attachments"]):
+                raise NodeError("Outlook attachments are limited to 3 MB each", code="attachment_too_large")
+            body["message"]["attachments"] = [{"@odata.type": "#microsoft.graph.fileAttachment", "name": a.get("name") or "attachment",
+                                               "contentType": a.get("content_type") or "application/octet-stream",
+                                               "contentBytes": base64.b64encode(a["content"]).decode()} for a in p["attachments"]]
         self.call(c, "POST", "/v1.0/me/sendMail", json=body)
         return {"accepted": True}
 
@@ -348,7 +363,7 @@ class Microsoft(Adapter):
     def upload_file(self, c: Conn, p: dict) -> dict:
         _need(p, "name", "content")
         name = re.sub(r"[\\/:*?\"<>|]", "_", str(p["name"]))
-        data = self.json(c, "PUT", f"/v1.0/me/drive/root:/{name}:/content", content=str(p["content"]).encode(),
+        data = self.json(c, "PUT", f"/v1.0/me/drive/root:/{name}:/content", content=_bytes(p),
                          headers={"Content-Type": p.get("content_type") or "text/plain"})
         return {"file_id": data.get("id"), "name": data.get("name"), "link": data.get("webUrl")}
 

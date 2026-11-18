@@ -5,6 +5,7 @@ from app.main import create_app
 
 SPEC = create_app().openapi()
 OPERATIONS = [(path, method, op) for path, item in SPEC["paths"].items() for method, op in item.items()]
+STREAMS = {"text/event-stream", "application/octet-stream"}
 PROBES = {"/api/v1/health", "/api/v1/health/ready"}  # unauthenticated liveness/readiness checks
 
 
@@ -18,6 +19,8 @@ def test_every_operation_documents_a_typed_success_response():
         success = [c for c in op["responses"] if c.startswith("2")]
         if not success:
             problems.append(f"{method.upper()} {path}: no success response")
+        elif set(op["responses"][success[0]].get("content", {})) & STREAMS:
+            continue  # event streams and file downloads are described by their media type
         elif "$ref" not in _schema(op, success[0]):
             problems.append(f"{method.upper()} {path}: untyped success response")
     assert len(OPERATIONS) > 150

@@ -39,6 +39,31 @@ test("a run waiting for an external signal can be resumed from its page", async 
   await expect(page.getByText("Paused", { exact: true })).toHaveCount(0);
 });
 
+test("an execution page updates live, pushed by the server instead of polled", async ({ page, api, org }) => {
+  const wf = await makeWorkflow(api, org.id, "Live flow",
+    [MANUAL, { id: "hold", type: "logic.wait", name: "Wait", config: {}, position: { x: 400, y: 160 } },
+      { id: "after", type: "logic.transform", name: "After", config: { fields: { done: true } }, position: { x: 700, y: 160 } }],
+    [{ source: "trigger", target: "hold", source_handle: "out" }, { source: "hold", target: "after", source_handle: "out" }]);
+  await api("POST", `/workflows/${wf}/publish`, {}, org.id);
+  const ex = await api("POST", `/workflows/${wf}/execute`, { input: {} }, org.id);
+  await expect.poll(async () => (await api("GET", `/executions/${ex.id}`, undefined, org.id)).status, { timeout: 20_000 }).toBe("WAITING");
+
+  const fetched: string[] = [];
+  page.on("request", (r) => { if (r.url().includes(`/executions/${ex.id}`) && r.method() === "GET") fetched.push(new URL(r.url()).pathname); });
+  await page.goto(`/executions/${ex.id}`);
+  await expect(page.getByText("Live", { exact: true })).toBeVisible(); // the stream is open through the web proxy
+  await expect(page.getByText("Paused", { exact: true })).toBeVisible();
+
+  await page.waitForTimeout(5000); // long enough that 2-second polling would show up as extra requests
+  // Something else moves the execution on (here: the API); the open page follows without a reload.
+  await api("POST", `/executions/${ex.id}/resume`, { data: {} }, org.id);
+  await expect(page.getByText("COMPLETED").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("After", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Live", { exact: true })).toHaveCount(0); // finished: the stream closed
+  expect(fetched.filter((p) => p.endsWith("/stream")).length).toBeGreaterThanOrEqual(1);
+  expect(fetched.filter((p) => !p.endsWith("/stream")).length).toBeLessThanOrEqual(2); // the first load (plus at most one focus refresh), not a poll every 2 s
+});
+
 test("notifications: a failure reaches the inbox; preferences and channels are saved", async ({ page, api, org }) => {
   await seedRuns(api, org.id);
   await page.goto("/notifications");

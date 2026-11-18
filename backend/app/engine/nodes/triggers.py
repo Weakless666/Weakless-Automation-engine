@@ -64,6 +64,7 @@ class MailboxConfig(NodeConfig):
     folder: str = Field("INBOX", min_length=1, max_length=200, description="Folder to watch")
     poll_minutes: int = Field(2, ge=1, le=60, description="How often to check for new mail")
     mark_as_read: bool = Field(False, description="Mark handled messages as read in the mailbox")
+    save_attachments: bool = Field(False, description="Store attachments as files so later steps can forward, upload or process them")
     from_contains: str = Field("", max_length=200, description="Only start for senders containing this text (empty = all)")
     subject_contains: str = Field("", max_length=200, description="Only start for subjects containing this text (empty = all)")
 
