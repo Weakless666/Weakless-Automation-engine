@@ -54,6 +54,7 @@ class ContentBody(Body):
     scheduled_for: datetime | None = None
     status: Literal["idea", "draft", "awaiting_approval"] = "draft"
     meta: dict[str, Any] = Field(default_factory=dict)
+    media: list[str] = Field(default_factory=list, max_length=4, description="Ids of stored image or video files to post with the text")
 
 
 class ContentPatch(Body):
@@ -65,6 +66,7 @@ class ContentPatch(Body):
     scheduled_for: datetime | None = None
     status: Literal["idea", "draft", "awaiting_approval"] | None = None
     meta: dict[str, Any] | None = None
+    media: list[str] | None = Field(None, max_length=4)
 
 
 class DecisionBody(Body):
@@ -77,10 +79,37 @@ class OutcomeBody(Body):
     note: str = Field("", max_length=2000)
 
 
+class PublishingBody(Body):
+    channel: Channel
+    integration_id: str | None = Field(None, description="The integration to publish through; null disconnects the channel")
+
+
+@router.get("/content/publishing", response_model=schemas.Items[schemas.PublishingChannelOut])
+def publishing_channels(ctx: Ctx = Depends(org_ctx("content.read"))) -> dict:
+    """Every channel, whether the platform can publish to it natively, and the account it publishes through."""
+    from app.services.publishing import channels
+
+    return {"items": channels(ctx.db, ctx.org_id)}
+
+
+@router.put("/content/publishing", response_model=schemas.Items[schemas.PublishingChannelOut])
+def connect_channel(body: PublishingBody, ctx: Ctx = Depends(org_ctx("content.approve"))) -> dict:
+    """Choose the connected account a channel publishes through. From then on approved items for that
+    channel are posted automatically at their scheduled time."""
+    from app.services.publishing import channels, set_connection
+
+    set_connection(ctx.db, ctx.org_id, body.channel, body.integration_id)
+    audit(ctx.db, "content.publishing_changed", ctx=ctx, resource_type="organization", resource_id=ctx.org_id,
+          meta={"channel": body.channel, "integration_id": body.integration_id})
+    ctx.db.commit()
+    return {"items": channels(ctx.db, ctx.org_id)}
+
+
 @router.post("/content", response_model=schemas.ContentItemOut, status_code=201)
 def create_content(body: ContentBody, ctx: Ctx = Depends(org_ctx("content.write"))) -> dict:
     item = svc.create_item(ctx.db, ctx.org_id, title=body.title, channel=body.channel, body=body.body, media_notes=body.media_notes,
-                           hashtags=body.hashtags, scheduled_for=body.scheduled_for, status=body.status, user_id=ctx.user.id, meta=body.meta)
+                           hashtags=body.hashtags, scheduled_for=body.scheduled_for, status=body.status, user_id=ctx.user.id, meta=body.meta,
+                           media=body.media)
     audit(ctx.db, "content.created", ctx=ctx, resource_type="content_item", resource_id=item.id)
     ctx.db.commit()
     return svc.view(item)
@@ -111,6 +140,36 @@ def approve_content(item_id: str, body: DecisionBody, ctx: Ctx = Depends(org_ctx
 def reject_content(item_id: str, body: DecisionBody, ctx: Ctx = Depends(org_ctx("content.approve"))) -> dict:
     item = svc.decide(ctx.db, svc.get_item(ctx.db, ctx.org_id, item_id), approve=False, user_id=ctx.user.id, note=body.note)
     audit(ctx.db, "content.rejected", ctx=ctx, resource_type="content_item", resource_id=item.id)
+    ctx.db.commit()
+    return svc.view(item)
+
+
+@router.post("/content/{item_id}/publish", response_model=schemas.ContentItemOut)
+def publish_content(item_id: str, ctx: Ctx = Depends(org_ctx("content.approve"))) -> dict:
+    """Publish an approved (or previously failed) item now through the account connected for its channel.
+    The response carries the outcome: ``published`` with the link, or ``failed`` with the reason."""
+    from sqlalchemy import update
+
+    from app.services.publishing import connected_integration, publish_item
+
+    item = svc.get_item(ctx.db, ctx.org_id, item_id)
+    if item.status not in ("approved", "failed"):
+        raise Conflict("Only approved content can be published")
+    if connected_integration(ctx.db, ctx.org_id, item.channel) is None:
+        raise Conflict(f"No account is connected for {item.channel}. Connect one under Publishing first.")
+    # Claim the item so the worker's scheduled release cannot post it a second time.
+    previous = item.due_emitted_at
+    if item.status == "approved" and previous and previous > utcnow() - timedelta(minutes=2):
+        raise Conflict("This item is being published right now")
+    claimed = ctx.db.execute(update(ContentItem).where(
+        ContentItem.id == item.id, ContentItem.due_emitted_at.is_(None) if previous is None else ContentItem.due_emitted_at == previous)
+        .values(due_emitted_at=utcnow()).execution_options(synchronize_session=False))
+    ctx.db.commit()
+    if claimed.rowcount != 1:
+        raise Conflict("This item is being published right now")
+    ctx.db.refresh(item)
+    publish_item(ctx.db, item)
+    audit(ctx.db, f"content.{item.status}", ctx=ctx, resource_type="content_item", resource_id=item.id, meta={"native": True})
     ctx.db.commit()
     return svc.view(item)
 

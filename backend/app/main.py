@@ -129,9 +129,9 @@ def create_app() -> FastAPI:
         code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
         return _error(exc.status_code, code, str(exc.detail), request)
 
-    from app.api import agents, auth, catalog, content, events, files, insights, integrations, orgs, schemas, workflows
+    from app.api import agents, auth, catalog, content, events, files, insights, integrations, orgs, schemas, studio, workflows
 
-    for r in (auth.router, orgs.router, workflows.router, agents.router, content.router, files.router, integrations.router, events.router, events.public,
+    for r in (auth.router, orgs.router, workflows.router, agents.router, content.router, studio.router, files.router, integrations.router, events.router, events.public,
               catalog.router, insights.router, insights.public):
         # Every error uses the same envelope; documenting it here covers all operations.
         app.include_router(r, prefix="/api/v1", responses=schemas.ERROR_RESPONSES)

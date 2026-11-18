@@ -140,6 +140,22 @@ An approved item emits the `content.due` application event at its scheduled time
 
 Packages: `GET /industry-packages/{id}` includes `team` (members and the install form) for packages with an AI team; installing such a package requires that form in `config` and returns `team.agents`.
 
+### Publishing and Creative Studio
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/content/publishing` | `content.read`. Every channel: `native` (can the platform publish to it), accepted `providers`, and the connected `integration_id` / name / status |
+| PUT | `/content/publishing` | `content.approve`. `{channel, integration_id}`; `null` disconnects. 422 if the integration is of another network or the channel has no native publishing |
+| POST | `/content/{id}/publish` | `content.approve`. Publishes an approved or failed item now through the connected account. 200 with the item: `published` and `published_url`, or `failed` with the reason in `decision_note`. 409 without a connected account or while it is already being published |
+| GET | `/studio/meta` | `content.read`. Media providers, whether each has credentials, suggested models, aspects and video lengths |
+| GET | `/studio/generations` | Paged; filter `kind` |
+| POST | `/studio/generations` | `content.write`. `{kind: image/video, prompt, aspect, seconds, provider?, model?}`. 202 with the queued request; 422 when no provider can make it |
+| GET, DELETE | `/studio/generations/{id}` | `status` queued/running/completed/failed, `error`, and `file` (a file reference) once completed. Delete also removes the file unless `delete_file=false`; 409 while the file is attached to a planned post |
+| GET | `/public/files/{id}?exp=&sig=` | No sign-in: a signed, expiring link to one image or video, created by the platform for networks that fetch media themselves |
+
+Content items accept and return `media`: on write a list of up to four file ids (images or videos), on read file references. With a connected channel an approved item is published automatically at `scheduled_for` (or within seconds without one) and the events `content.published` / `content.failed` are emitted; without one `content.due` is emitted as before.
+
+Workflow steps: Publish Social Post (`action.publish_post`: integration, text, link, media, optional target) and Generate Image (`ai.generate_image`: prompt, aspect, provider, model; output `file`).
+
 ### Files
 | Method | Path | Notes |
 |---|---|---|

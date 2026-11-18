@@ -220,8 +220,50 @@ class ContentItemOut(Out):
     published_at: ISO
     published_url: str | None
     meta: dict[str, Any]
+    media: list[dict[str, Any]] = Field(default_factory=list, description="Images or videos posted with the text: file references")
     created_at: ISO
     updated_at: ISO
+
+
+class PublishingChannelOut(Out):
+    channel: str
+    native: bool = Field(description="Whether the platform can publish to this channel itself")
+    providers: list[str]
+    integration_id: str | None
+    integration_name: str | None
+    integration_status: str | None
+
+
+class MediaGenerationOut(Out):
+    id: str
+    kind: str = Field(description="image or video")
+    provider: str
+    model: str
+    prompt: str
+    params: dict[str, Any]
+    status: str = Field(description="queued, running, completed or failed")
+    error: str
+    file: dict[str, Any] | None = Field(description="The result as a file reference, once completed")
+    created_at: ISO
+    finished_at: ISO
+
+
+class MediaGenerationPage(Page[MediaGenerationOut]):
+    pass
+
+
+class StudioProviderOut(Out):
+    key: str
+    name: str
+    available: bool = Field(description="Whether credentials for this provider exist")
+    image_models: list[str]
+    video_models: list[str]
+
+
+class StudioMetaOut(Out):
+    providers: list[StudioProviderOut]
+    aspects: list[str]
+    video_seconds: list[int]
 
 
 class TeamMemberOut(Out):

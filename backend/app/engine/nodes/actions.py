@@ -145,6 +145,32 @@ def update_content(ctx: NodeContext, cfg: ContentOutcomeConfig) -> NodeResult:
     return NodeResult(output={"status": item.status, "item_id": str(item.id)})
 
 
+SOCIAL_PROVIDERS = ["linkedin", "meta", "x", "telegram"]
+
+
+class PublishPostConfig(NodeConfig):
+    integration_id: str = _ID
+    network: Literal["", "facebook", "instagram"] = Field("", description="Only for a Meta integration: Facebook Page (default) or Instagram")
+    text: str = Field("", max_length=20000, description="The post text, e.g. {{ trigger.data.body }}")
+    link: str = Field("", max_length=1000, description="A link to add to the post (optional)")
+    media: list[Any] = Field(default_factory=list, max_length=4,
+                             description="Stored image or video files: file ids or file outputs of earlier steps, e.g. {{ nodes.image.file }}")
+    target: str = Field("", max_length=200, description="Override where to post: page id, company URN or Telegram channel (default: the integration's)")
+
+
+@node("action.publish_post", "action", "Publish Social Post", "Publish a post to LinkedIn, a Facebook Page, Instagram, X or a Telegram channel.",
+      PublishPostConfig, providers=SOCIAL_PROVIDERS, idempotent=False,
+      output_schema={"post_id": {"type": "string"}, "url": {"type": "string"}}, icon="megaphone")
+def publish_post(ctx: NodeContext, cfg: PublishPostConfig) -> NodeResult:
+    from app.services.publishing import load_media
+
+    if not cfg.text.strip() and not cfg.media:
+        raise NodeError("A post needs text or media", code="invalid_config")
+    params = {"channel": cfg.network or "facebook", "text": cfg.text, "link": cfg.link, "target": cfg.target,
+              "media": load_media(ctx.db, ctx.organization_id, cfg.media)}
+    return NodeResult(output=_run(ctx, cfg.integration_id, "publish_post", params, SOCIAL_PROVIDERS))
+
+
 class NotificationConfig(NodeConfig):
     title: str = Field(..., min_length=1, max_length=300)
     body: str = ""

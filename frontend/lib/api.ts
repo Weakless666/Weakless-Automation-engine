@@ -88,6 +88,16 @@ export async function apiUpload<T = any>(path: string, file: File): Promise<T> {
   return data as T;
 }
 
+/** Fetch a stored file as a typed blob for an inline preview. Only images and videos are ever given their real type. */
+export async function apiBlob(path: string, contentType: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (organizationId) headers["X-Organization-Id"] = organizationId;
+  const res = await fetch(`/api/v1${path}`, { headers, credentials: "same-origin" });
+  if (!res.ok) fail(res, await res.json().catch(() => null));
+  const safe = /^(image\/(png|jpeg|gif|webp)|video\/(mp4|webm|quicktime))$/.test(contentType) ? contentType : "application/octet-stream";
+  return new Blob([await res.arrayBuffer()], { type: safe });
+}
+
 /** Fetch a binary response and hand it to the browser as a download. */
 export async function apiDownload(path: string, filename: string): Promise<void> {
   const headers: Record<string, string> = {};

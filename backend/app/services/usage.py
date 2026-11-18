@@ -12,12 +12,13 @@ from app.core.errors import QuotaExceeded
 from app.db import utcnow
 from app.models import Integration, Subscription, SubscriptionPlan, UsageCounter, UsageRecord, Workflow
 
-METRICS = ("executions", "ai_requests", "ai_input_tokens", "ai_output_tokens", "ai_cost_usd")
+METRICS = ("executions", "ai_requests", "ai_input_tokens", "ai_output_tokens", "ai_cost_usd", "media_generations")
 ALERT_THRESHOLDS = (80, 100)
 # quota key in plan.limits -> usage metrics that count against it
 QUOTAS = {
     "executions_per_month": ("executions",),
     "ai_tokens_per_month": ("ai_input_tokens", "ai_output_tokens"),
+    "media_generations_per_month": ("media_generations",),
 }
 
 

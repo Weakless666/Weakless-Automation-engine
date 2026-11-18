@@ -72,6 +72,22 @@ node("action.ai_response", "action", "Generate AI Response", "Generate a reply w
      output_schema=_TEXT_OUT, icon="message-square-text")(_completion)
 
 
+class GenerateImageConfig(NodeConfig):
+    prompt: str = Field(..., min_length=3, max_length=8000, description="What the image should show, e.g. built from {{ trigger.data.media_notes }}")
+    aspect: Literal["1:1", "4:5", "16:9", "9:16"] = Field("1:1", description="Square, portrait (feed), landscape or vertical (stories)")
+    provider: Literal["", "openai", "gemini", "openai_compatible"] = Field("", description="Empty = the first connected provider that makes images")
+    model: str = Field("", max_length=120, description="Empty = the provider's default image model")
+
+
+@node("ai.generate_image", "ai", "Generate Image", "Create an image with AI and store it as a file you can post, attach or upload.",
+      GenerateImageConfig, idempotent=False, output_schema={"file": {"type": "object"}, "model": {"type": "string"}}, icon="image")
+def generate_image(ctx: NodeContext, cfg: GenerateImageConfig) -> NodeResult:
+    from app.services.studio import generate_image_now
+
+    return NodeResult(output=generate_image_now(ctx.db, ctx.organization_id, prompt=cfg.prompt, provider=cfg.provider or None, model=cfg.model or None,
+                                                aspect=cfg.aspect, execution_id=ctx.execution.id, secrets_out=ctx.secrets))
+
+
 class AgentNodeConfig(NodeConfig):
     agent_id: str = Field(..., description="AI agent to run")
     input: str = Field(..., min_length=1, description="Message for the agent")

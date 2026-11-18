@@ -124,6 +124,24 @@ def _bytes(p: dict) -> bytes:
     return content if isinstance(content, (bytes, bytearray)) else str(content if content is not None else "").encode()
 
 
+def _post_text(p: dict) -> str:
+    """Text of a social post: the text, then the link on its own line."""
+    text, link = str(p.get("text") or "").strip(), str(p.get("link") or "").strip()
+    return f"{text}\n\n{link}".strip() if link and link not in text else text
+
+
+def _first_media(p: dict) -> dict | None:
+    """Social posts carry one image or video: ``{name, content_type, content: bytes, url}`` (resolved by the caller)."""
+    media = [m for m in (p.get("media") or []) if isinstance(m, dict) and m.get("content")]
+    if not media:
+        return None
+    m = media[0]
+    ctype = str(m.get("content_type") or "")
+    if not ctype.startswith(("image/", "video/")):
+        raise NodeError(f"'{m.get('name')}' is not an image or a video", code="invalid_config")
+    return {"name": str(m.get("name") or "media"), "content_type": ctype, "content": m["content"], "url": str(m.get("url") or "")}
+
+
 def _need(p: dict, *names: str) -> None:
     missing = [n for n in names if p.get(n) in (None, "")]
     if missing:
@@ -402,7 +420,7 @@ class Telegram(Adapter):
         return {"account": "@" + str((data.get("result") or {}).get("username"))}
 
     def actions(self):
-        return {"send_message": self.send_message}
+        return {"send_message": self.send_message, "publish_post": self.publish_post}
 
     def send_message(self, c: Conn, p: dict) -> dict:
         _need(p, "to", "text")
@@ -411,6 +429,25 @@ class Telegram(Adapter):
             body["parse_mode"] = p["parse_mode"]
         data = self.json(c, "POST", "/sendMessage", json=body)
         return {"message_id": (data.get("result") or {}).get("message_id")}
+
+    def publish_post(self, c: Conn, p: dict) -> dict:
+        """Post to a channel or group the bot administers; one photo or video with the text as its caption."""
+        chat = p.get("target") or c.get("chat_id")
+        if not chat:
+            raise NodeError("Set the channel (@name or chat id) on the Telegram integration or the step", code="invalid_config")
+        text, media = _post_text(p), _first_media(p)
+        if media:
+            kind = "video" if media["content_type"].startswith("video/") else "photo"
+            if len(text) > 1024:
+                raise NodeError("Telegram captions can be at most 1024 characters", code="invalid_config")
+            data = self.json(c, "POST", "/sendVideo" if kind == "video" else "/sendPhoto", data={"chat_id": str(chat), "caption": text},
+                             files={kind: (media["name"], media["content"], media["content_type"])}, timeout=120)
+        else:
+            _need(p, "text")
+            data = self.json(c, "POST", "/sendMessage", json={"chat_id": chat, "text": text[:4096]})
+        result = data.get("result") or {}
+        username = (result.get("chat") or {}).get("username")
+        return {"post_id": str(result.get("message_id") or ""), "url": f"https://t.me/{username}/{result.get('message_id')}" if username else ""}
 
 
 class Discord(Adapter):
@@ -1011,6 +1048,68 @@ class Meta(Adapter):
         me = self.json(c, "GET", "/me", params={"fields": "id,name"})
         return {"account": me.get("name") or me.get("id")}
 
+    def actions(self):
+        return {**super().actions(), "publish_post": self.publish_post}
+
+    def publish_post(self, c: Conn, p: dict) -> dict:
+        """Facebook Page post (text, link, one photo or video) or Instagram post (one image or reel).
+        ``channel`` picks the network; Instagram needs the media at a public URL."""
+        if str(p.get("channel") or "facebook") == "instagram":
+            return self._instagram(c, p)
+        page = p.get("target") or c.get("page_id")
+        if not page:
+            raise NodeError("Set the Facebook Page ID on the Meta integration", code="invalid_config")
+        text, media = _post_text(p), _first_media(p)
+        if media and media["content_type"].startswith("video/"):
+            data = self.json(c, "POST", f"/{page}/videos", data={"description": text},
+                             files={"source": (media["name"], media["content"], media["content_type"])}, timeout=300)
+            return {"post_id": str(data.get("id") or ""), "url": f"https://www.facebook.com/{data.get('id')}" if data.get("id") else ""}
+        if media:
+            data = self.json(c, "POST", f"/{page}/photos", data={"caption": text},
+                             files={"source": (media["name"], media["content"], media["content_type"])}, timeout=120)
+        else:
+            if not text:
+                raise NodeError("A post needs text or media", code="invalid_config")
+            body = {"message": str(p.get("text") or "").strip()}
+            if p.get("link"):
+                body["link"] = str(p["link"])
+            data = self.json(c, "POST", f"/{page}/feed", json=body)
+        post_id = str(data.get("post_id") or data.get("id") or "")
+        return {"post_id": post_id, "url": f"https://www.facebook.com/{post_id}" if post_id else ""}
+
+    def _instagram(self, c: Conn, p: dict) -> dict:
+        import time
+
+        account = p.get("target") or c.get("instagram_account_id")
+        if not account:
+            raise NodeError("Set the Instagram account ID on the Meta integration", code="invalid_config")
+        media = _first_media(p)
+        if not media:
+            raise NodeError("Instagram posts need an image or a video", code="invalid_config")
+        if not media["url"].startswith("https://"):
+            raise NodeError("Instagram fetches media from a public HTTPS address: set WAE_PUBLIC_BASE_URL to the API's public https URL",
+                            code="public_url_required")
+        video = media["content_type"].startswith("video/")
+        body = {"caption": _post_text(p), **({"media_type": "REELS", "video_url": media["url"]} if video else {"image_url": media["url"]})}
+        container = self.json(c, "POST", f"/{account}/media", json=body).get("id")
+        if not container:
+            raise NodeError("Instagram did not accept the media", code="publish_failed")
+        for _ in range(40 if video else 5):  # Instagram downloads and processes the media before it can be published
+            status = self.json(c, "GET", f"/{container}", params={"fields": "status_code"}).get("status_code")
+            if status in ("FINISHED", None):
+                break
+            if status in ("ERROR", "EXPIRED"):
+                raise NodeError(f"Instagram could not process the media ({status})", code="publish_failed")
+            time.sleep(INSTAGRAM_POLL_SECONDS)
+        else:
+            raise NodeError("Instagram is still processing the media; try publishing again in a few minutes", code="publish_pending", retryable=False)
+        media_id = self.json(c, "POST", f"/{account}/media_publish", json={"creation_id": container}).get("id")
+        link = self.json(c, "GET", f"/{media_id}", params={"fields": "permalink"}).get("permalink") if media_id else ""
+        return {"post_id": str(media_id or ""), "url": link or ""}
+
+
+INSTAGRAM_POLL_SECONDS = 3.0
+
 
 class LinkedIn(Adapter):
     service, base_url = "LinkedIn", "https://api.linkedin.com"
@@ -1018,6 +1117,64 @@ class LinkedIn(Adapter):
     def test(self, c: Conn) -> dict:
         me = self.json(c, "GET", "/v2/userinfo")
         return {"account": me.get("email") or me.get("name")}
+
+    def actions(self):
+        return {**super().actions(), "publish_post": self.publish_post}
+
+    def _versioned(self, c: Conn) -> dict:
+        return {"LinkedIn-Version": str(c.get("api_version") or LINKEDIN_API_VERSION), "X-Restli-Protocol-Version": "2.0.0"}
+
+    def publish_post(self, c: Conn, p: dict) -> dict:
+        """Post as the connected member, or as a company page when ``author_urn`` is set (urn:li:organization:123)."""
+        author = str(p.get("target") or c.get("author_urn") or "")
+        if not author:
+            sub = self.json(c, "GET", "/v2/userinfo").get("sub")
+            if not sub:
+                raise NodeError("LinkedIn did not return the member id", code="publish_failed")
+            author = f"urn:li:person:{sub}"
+        text, media = _post_text(p), _first_media(p)
+        if not text and not media:
+            raise NodeError("A post needs text or media", code="invalid_config")
+        body: dict = {"author": author, "commentary": text, "visibility": "PUBLIC", "lifecycleState": "PUBLISHED",
+                      "distribution": {"feedDistribution": "MAIN_FEED", "targetEntities": [], "thirdPartyDistributionChannels": []},
+                      "isReshareDisabledByAuthor": False}
+        if media:
+            if not media["content_type"].startswith("image/"):
+                raise NodeError("LinkedIn publishing supports images; post videos by hand for now", code="not_supported")
+            up = (self.json(c, "POST", "/rest/images?action=initializeUpload", headers=self._versioned(c),
+                            json={"initializeUploadRequest": {"owner": author}}).get("value") or {})
+            if not up.get("uploadUrl") or not up.get("image"):
+                raise NodeError("LinkedIn did not open an image upload", code="publish_failed")
+            # The upload address is LinkedIn's own; the bearer token is required there too.
+            resp = http.request("PUT", up["uploadUrl"], headers=self.headers(c), content=media["content"], timeout=120)
+            http.raise_for_status(resp, "LinkedIn upload")
+            body["content"] = {"media": {"id": up["image"], "altText": str(p.get("title") or "")[:300]}}
+        resp = self.call(c, "POST", "/rest/posts", headers=self._versioned(c), json=body)
+        post_id = resp.headers.get("x-restli-id") or resp.headers.get("x-linkedin-id") or ""
+        return {"post_id": post_id, "url": f"https://www.linkedin.com/feed/update/{post_id}/" if post_id else ""}
+
+
+LINKEDIN_API_VERSION = "202610"
+
+
+class XTwitter(Adapter):
+    service, base_url = "X", "https://api.x.com"
+
+    def test(self, c: Conn) -> dict:
+        me = self.json(c, "GET", "/2/users/me").get("data") or {}
+        return {"account": "@" + str(me.get("username") or me.get("id"))}
+
+    def actions(self):
+        return {**super().actions(), "publish_post": self.publish_post}
+
+    def publish_post(self, c: Conn, p: dict) -> dict:
+        text = _post_text(p)
+        if not text:
+            raise NodeError("A post needs text", code="invalid_config")
+        if _first_media(p):
+            raise NodeError("Publishing to X supports text and links; post media by hand for now", code="not_supported")
+        data = self.json(c, "POST", "/2/tweets", json={"text": text}).get("data") or {}
+        return {"post_id": str(data.get("id") or ""), "url": f"https://x.com/i/web/status/{data['id']}" if data.get("id") else ""}
 
 
 class Mailchimp(Adapter):
@@ -1193,7 +1350,9 @@ PROVIDERS: dict[str, ProviderDef] = {p.key: p for p in [
         Field("app_secret", "App secret", secret=True, required=False, help="Used to verify inbound webhook signatures."),
     ], setup="Create a Meta app with the WhatsApp product, add a phone number and generate a system-user token."),
     ProviderDef("telegram", "Telegram", "Communication", "bot_token", Telegram(),
-                fields=[Field("bot_token", "Bot token", secret=True, help="From @BotFather.")]),
+                fields=[Field("bot_token", "Bot token", secret=True, help="From @BotFather."),
+                        Field("chat_id", "Channel for posts", required=False, placeholder="@mychannel",
+                              help="Where published posts go; the bot must be an administrator of the channel.")]),
     ProviderDef("discord", "Discord", "Communication", "webhook_url", Discord(),
                 fields=[Field("webhook_url", "Webhook URL", secret=True, help="Channel settings > Integrations > Webhooks.")]),
     ProviderDef("slack", "Slack", "Communication", "bot_token", Slack(),
@@ -1245,9 +1404,19 @@ PROVIDERS: dict[str, ProviderDef] = {p.key: p for p in [
                 setup=_OAUTH_SETUP.format(G="SALESFORCE")),
     # Marketing
     ProviderDef("meta", "Meta (Facebook / Instagram)", "Marketing", "api_key", Meta(),
-                fields=[Field("access_token", "Page or system-user access token", secret=True)],
-                setup="Available Graph API endpoints depend on the permissions granted to your Meta app."),
+                fields=[Field("access_token", "Page or system-user access token", secret=True),
+                        Field("page_id", "Facebook Page ID", required=False, help="Needed to publish posts to the Page."),
+                        Field("instagram_account_id", "Instagram account ID", required=False,
+                              help="The Instagram professional account linked to the Page; needed to publish to Instagram.")],
+                setup="Available Graph API endpoints depend on the permissions granted to your Meta app. Publishing needs "
+                      "pages_manage_posts (Facebook) and instagram_content_publish (Instagram)."),
+    ProviderDef("x", "X (Twitter)", "Marketing", "oauth2", XTwitter(),
+                oauth=OAuthDef(group="x", authorize_url="https://x.com/i/oauth2/authorize", token_url="https://api.x.com/2/oauth2/token",
+                               scopes=["tweet.read", "tweet.write", "users.read", "offline.access"]),
+                setup=_OAUTH_SETUP.format(G="X") + " Posting needs an X developer app with write access."),
     ProviderDef("linkedin", "LinkedIn", "Marketing", "oauth2", LinkedIn(),
+                fields=[Field("author_urn", "Company page URN", required=False, placeholder="urn:li:organization:12345",
+                              help="Leave empty to post as the connected person. Company pages need the w_organization_social permission.")],
                 oauth=OAuthDef(group="linkedin", authorize_url="https://www.linkedin.com/oauth/v2/authorization",
                                token_url="https://www.linkedin.com/oauth/v2/accessToken", scopes=["openid", "profile", "email", "w_member_social"], pkce=False),
                 setup=_OAUTH_SETUP.format(G="LINKEDIN") + " Posting APIs require LinkedIn product approval."),

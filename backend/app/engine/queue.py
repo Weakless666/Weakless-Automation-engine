@@ -232,6 +232,10 @@ class Worker:
 
             release_due_content(db)
         with new_session(bypass_rls=True) as db:
+            from app.services.studio import poll_generations
+
+            poll_generations(db)
+        with new_session(bypass_rls=True) as db:
             expire_approvals(db)
         with new_session(bypass_rls=True) as db:
             from app.services.billing import roll_periods

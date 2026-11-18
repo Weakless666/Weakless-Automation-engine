@@ -11,7 +11,7 @@ import { fmtDate, fmtRelative } from "@/lib/format";
 import { Badge, Button, Card, EmptyState, ErrorState, InlineError, Input, Notice, PageHeader, Pager, Select, Spinner, Table, Td, Th } from "@/components/ui";
 
 const LIMIT = 50;
-const SOURCE: Record<string, string> = { upload: "Uploaded", workflow: "Workflow", mailbox: "Email attachment" };
+const SOURCE: Record<string, string> = { upload: "Uploaded", workflow: "Workflow", mailbox: "Email attachment", studio: "Creative Studio" };
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;

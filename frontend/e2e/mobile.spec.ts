@@ -54,7 +54,7 @@ test("on a phone every screen fits the width and the menu opens as a drawer", as
     ["/", org.name], ["/organizations", "Organizations"], [`/organizations/${org.id}`, org.name], ["/automations", "Automations"],
     ["/builder", "Workflow Builder"], ["/agents", "AI Agents"], [`/agents/${agentId}`, "Phone agent"], ["/integrations", "Integrations"],
     ["/templates", "Templates"], ["/solutions", "Industry Solutions"], ["/executions", "Executions"], [`/executions/${badRun}`, "Bad flow"],
-    ["/teams", "AI Teams"], ["/content", "Content"], ["/files", "Files"],
+    ["/teams", "AI Teams"], ["/content", "Content"], ["/studio", "Creative Studio"], ["/files", "Files"],
     ["/analytics", "Analytics"], ["/billing", "Usage & Billing"], ["/notifications", "Notifications"], ["/audit", "Audit Logs"], ["/settings", "Settings"],
   ];
   const problems: string[] = [];

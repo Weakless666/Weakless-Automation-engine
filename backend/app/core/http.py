@@ -83,6 +83,7 @@ def request(
     auth: tuple[str, str] | None = None,
     timeout: float = 30.0,
     allow_private: bool | None = None,
+    max_bytes: int = MAX_RESPONSE_BYTES,  # raise only for file downloads the caller stores (media)
 ) -> httpx.Response:
     """Perform a guarded HTTP request. Raises ``NodeError`` for network failures."""
     method = method.upper()
@@ -108,9 +109,9 @@ def request(
                 body = b""
                 for chunk in resp.iter_bytes():
                     body += chunk
-                    if len(body) > MAX_RESPONSE_BYTES:
+                    if len(body) > max_bytes:
                         resp.close()
-                        raise NodeError("Response exceeded the 5 MB limit", code="response_too_large")
+                        raise NodeError(f"Response exceeded the {max_bytes // (1024 * 1024)} MB limit", code="response_too_large")
                 resp.close()
                 resp._content = body
                 return resp

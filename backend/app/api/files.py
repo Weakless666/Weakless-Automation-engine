@@ -60,6 +60,18 @@ def download_file(file_id: str, ctx: Ctx = Depends(org_ctx("files.read"))) -> Re
         "X-File-Content-Type": f.content_type})
 
 
+@router.get("/public/files/{file_id}", response_class=Response, tags=["public"],
+            responses={200: {"content": {"application/octet-stream": {}}, "description": "An image or video behind a signed, expiring link"}})
+def public_file(file_id: str, exp: int, sig: str) -> Response:
+    """No sign-in: the signature is the permission. Used by services that fetch media themselves (Instagram).
+    Only images and videos are served, with their real type, so nothing here can run as a page."""
+    from app.db import new_session
+
+    with new_session(bypass_rls=True) as db:
+        f = svc.get_public_file(db, file_id, exp, sig)
+        return Response(content=f.data, media_type=f.content_type, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300"})
+
+
 @router.delete("/files/{file_id}", response_model=schemas.Ok)
 def delete_file(file_id: str, ctx: Ctx = Depends(org_ctx("files.write"))) -> dict:
     f = svc.get_file(ctx.db, ctx.org_id, file_id)

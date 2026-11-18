@@ -84,6 +84,42 @@ def get_file(db: Session, organization_id: uuid.UUID, file_id, *, with_data: boo
     return f
 
 
+INLINE_MEDIA_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4", "video/quicktime", "video/webm")
+PUBLIC_LINK_SECONDS = 3600
+
+
+def _signature(file_id: uuid.UUID, expires: int) -> str:
+    from app.core.security import hmac_sha256_hex
+
+    return hmac_sha256_hex(get_settings().secret_key, f"public-file:{file_id}:{expires}".encode())
+
+
+def public_url(f: StoredFile, ttl_seconds: int = PUBLIC_LINK_SECONDS) -> str:
+    """A signed, expiring address for one image or video, for services that fetch media themselves
+    (Instagram). Nothing else is ever public; the link works only if ``WAE_PUBLIC_BASE_URL`` is reachable."""
+    import time
+
+    expires = int(time.time()) + ttl_seconds
+    return f"{get_settings().public_base_url.rstrip('/')}/api/v1/public/files/{f.id}?exp={expires}&sig={_signature(f.id, expires)}"
+
+
+def get_public_file(db: Session, file_id: str, expires: int, signature: str) -> StoredFile:
+    import time
+
+    from app.core.security import constant_time_equals
+
+    try:
+        fid = uuid.UUID(str(file_id))
+    except ValueError:
+        raise NotFound("File not found")
+    if expires < time.time() or not constant_time_equals(_signature(fid, int(expires)), str(signature)):
+        raise NotFound("File not found")
+    f = db.scalar(select(StoredFile).where(StoredFile.id == fid).options(undefer(StoredFile.data)))
+    if f is None or f.content_type not in INLINE_MEDIA_TYPES or (f.expires_at and f.expires_at <= utcnow()):
+        raise NotFound("File not found")
+    return f
+
+
 def purge_expired(db: Session, now: datetime, batch: int = 200) -> int:
     from sqlalchemy import delete
 
