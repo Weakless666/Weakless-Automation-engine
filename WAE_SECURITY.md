@@ -29,7 +29,8 @@ Residual risk: required set-up happens at the first sign-in after the requiremen
 Not implemented: SSO/OIDC login, WebAuthn / passkeys.
 
 ## Authorization
-- **RBAC**: nine roles, 35 permissions, checked by a dependency on every endpoint. Tested per role, including that clients cannot reach platform administration.
+- **Files**: `files.read` / `files.write`, tenant-scoped in the API and by Row Level Security. Downloads are always served as `application/octet-stream` attachments with `nosniff`, so an uploaded HTML or SVG file can never run in the application's origin. File names are sanitised; size is limited per file and per organization. The live execution stream checks the same permission and tenant as the plain execution read before it starts.
+- **RBAC**: nine roles, 40 permissions, checked by a dependency on every endpoint. Tested per role, including that clients cannot reach platform administration.
 - **Privilege escalation**: only a Super Admin can create or modify a Super Admin; client roles cannot be granted `platform.*` permissions; nobody can change their own role or disable themselves; an organization always keeps one active Client Admin; organization status and operating mode can only be changed by staff. Tested.
 - **Agency vs SaaS**: client admins can install templates only when the organization is in SaaS mode. Tested.
 

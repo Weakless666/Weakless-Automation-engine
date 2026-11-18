@@ -103,6 +103,7 @@ Template scope inside node configuration: `trigger.*`, `nodes.<id>.*`, `input.*`
 |---|---|---|
 | GET | `/executions` | Filters: `status`, `workflow_id`, `start`, `end`, `include_tests`. Platform-wide for staff. |
 | GET | `/executions/{id}` | Includes steps, waiting nodes, generated documents |
+| GET | `/executions/{id}/stream` | Server-Sent Events (`text/event-stream`). Event `execution`: the same body as the plain read, sent at once and again on every change. Event `end`: `{"reason": "finished"}` when the execution reaches a final status, or `{"reason": "recycle"}` after 10 minutes (reconnect). Comment lines every 15 s keep the connection open. |
 | POST | `/executions/{id}/cancel`, `/retry`, `/resume` | `executions.manage`. `/retry?from_failed_step=true` continues at the failed step on the same version, keeping earlier results (the execution's `can_resume` says whether that is possible) |
 
 Webhook and form triggers accept `response_mode: "respond_step"` (with `response_timeout_seconds`, 1-25): the request waits for a Respond to Webhook step and returns its status, body and content type; without a reply in time it gets the usual `202 {status, execution_id}`.
@@ -138,6 +139,17 @@ Agent tools added for teams: `delegate_to_agent` (config `agent_id`, `descriptio
 An approved item emits the `content.due` application event at its scheduled time (immediately if unscheduled or overdue). `content.*` and `workflow.*` event types are reserved for the platform. The "Update Content Item" workflow step records the publishing outcome.
 
 Packages: `GET /industry-packages/{id}` includes `team` (members and the install form) for packages with an AI team; installing such a package requires that form in `config` and returns `team.agents`.
+
+### Files
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/files` | `files.read`. Filters `q` (name), `source` (`upload`, `workflow`, `mailbox`); paged; also returns `storage` (`used_bytes`, `limit_bytes`, `max_file_bytes`) |
+| POST | `/files` | `files.write`. `multipart/form-data` with one `file` part. 413 over the per-file limit, 409 when the organization's storage is full |
+| GET | `/files/{id}` | Metadata |
+| GET | `/files/{id}/content` | The bytes, always as an `application/octet-stream` attachment |
+| DELETE | `/files/{id}` | `files.write` |
+
+In workflow data a file is a reference `{file_id, name, content_type, size}`. Steps that take a file accept that reference (for example `{{steps.download.file}}`) or a file id copied from the Files page.
 
 ### Integrations
 | Method | Path | Notes |

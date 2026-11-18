@@ -1,6 +1,6 @@
 # WAE Database Schema
 
-Source of truth: `backend/app/models.py` (55 tables). Migrations: `backend/alembic/versions/`.
+Source of truth: `backend/app/models.py` (56 tables). Migrations: `backend/alembic/versions/`.
 
 ## Conventions
 
@@ -87,7 +87,7 @@ The brief's entity list maps one-to-one onto these tables. Additions beyond it: 
 
 ## Tenant isolation in the database
 
-`TENANT_TABLES` in `models.py` lists 29 tables protected by Row Level Security. Migration `0002` runs, for each:
+`TENANT_TABLES` in `models.py` lists 34 tables protected by Row Level Security. Migration `0002` runs, for each:
 
 ```sql
 ALTER TABLE t ENABLE ROW LEVEL SECURITY;
@@ -114,6 +114,7 @@ The application sets both settings at the start of every transaction (`app/db.py
 | `0006` | `app_event_subscriptions` and `usage_counters`, back-filled from published versions and existing usage records; Row Level Security on both (PostgreSQL). `0002` now carries its own frozen table list, so later tenant tables get their policies in their own migration |
 | `0007` | `rate_limit_counters` for limits shared by every API instance (not a tenant table: keys are SHA-256 digests) |
 | `0010` | `workflow_executions.parent_execution_id` / `parent_node_key` (Run Workflow) and `response` (Respond to Webhook) |
+| `0011` | `files`: binary files that workflows use or produce (`name`, `content_type`, `size`, `sha256`, `source` upload/workflow/mailbox, `execution_id`, `created_by`, `expires_at`, `data`); indexed by organization and by expiry; Row Level Security (PostgreSQL) |
 | `0009` | AI teams and the content calendar: `ai_agents.team_key/team_module/team_lead`, `ai_agent_executions.parent_execution_id` (delegation chain), `industry_packages.team_key`, and `content_items` (Row Level Security on PostgreSQL) |
 | `0008` | `mailbox_watches`: one row per Mailbox Trigger of a published workflow (folder, poll interval, UIDVALIDITY and last UID read, failures); Row Level Security on PostgreSQL |
 

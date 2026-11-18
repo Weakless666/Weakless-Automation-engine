@@ -74,21 +74,24 @@ def claim(db: Session, worker_id: str) -> ExecutionQueueJob | None:
         job.attempts += 1
         db.commit()
         return job
-    job = db.scalar(base)
-    if not job:
-        db.rollback()
-        return None
-    res = db.execute(
-        update(ExecutionQueueJob)
-        .where(ExecutionQueueJob.id == job.id, ExecutionQueueJob.status == "QUEUED")
-        .values(status="CLAIMED", locked_by=worker_id, locked_at=now, attempts=ExecutionQueueJob.attempts + 1)
-        .execution_options(synchronize_session=False)
-    )
-    db.commit()
-    if res.rowcount == 0:
-        return None
-    db.refresh(job)
-    return job
+    # Without row locks the claim is a compare-and-swap. Losing it means another worker took that
+    # job, not that the queue is empty, so look again instead of reporting an idle queue.
+    for _ in range(50):
+        job = db.scalar(base)
+        if not job:
+            db.rollback()
+            return None
+        res = db.execute(
+            update(ExecutionQueueJob)
+            .where(ExecutionQueueJob.id == job.id, ExecutionQueueJob.status == "QUEUED")
+            .values(status="CLAIMED", locked_by=worker_id, locked_at=now, attempts=ExecutionQueueJob.attempts + 1)
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+        if res.rowcount:
+            db.refresh(job)
+            return job
+    return None
 
 
 def _dead_letter(db: Session, job: ExecutionQueueJob, reason: str) -> None:
