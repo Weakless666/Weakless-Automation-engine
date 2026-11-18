@@ -4,12 +4,13 @@ import Link from "next/link";
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, addEdge, useEdgesState, useNodesState, useReactFlow,
+  Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, addEdge, getViewportForBounds, useEdgesState, useNodesState, useReactFlow,
   type Connection, type Edge, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import clsx from "clsx";
-import { AlertTriangle, ArrowLeft, Check, Copy, FlaskConical, History, Play, Plus, Rocket, Save, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Copy, FlaskConical, History, Keyboard, LayoutGrid, Play, Plus, Redo2, Rocket, Save, Search, Trash2, Undo2, X } from "lucide-react";
+import { samplePaths, type DataOption } from "@/components/data-picker";
 import { api, errorMessage } from "@/lib/api";
 import { useLocateOrg, useOrgKey, useSession } from "@/lib/session";
 import { fmtDate, fmtDuration, fmtRelative } from "@/lib/format";
@@ -61,9 +62,15 @@ const FlowNode = memo(function FlowNode({ id, data, selected }: NodeProps<WaeNod
 
 const nodeTypes = { wae: FlowNode };
 
-function Palette({ specs, onAdd, open, onClose }: { specs: NodeSpec[]; onAdd: (s: NodeSpec) => void; open: boolean; onClose: () => void }) {
+function Palette({ specs, onAdd, open, onClose, after, onCancelAfter }: {
+  specs: NodeSpec[]; onAdd: (s: NodeSpec) => void; open: boolean; onClose: () => void; after?: string | null; onCancelAfter: () => void;
+}) {
   const [q, setQ] = useState("");
-  const shown = specs.filter((s) => !q || `${s.label} ${s.description}`.toLowerCase().includes(q.toLowerCase()));
+  const search = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (after) search.current?.focus(); }, [after]);
+  const order = Object.keys(CATEGORY);
+  const shown = specs.filter((s) => (!after || s.category !== "trigger") && (!q || `${s.label} ${s.description}`.toLowerCase().includes(q.toLowerCase())))
+    .sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category)); // the order the list shows them, so Enter adds the top one
   return (
     // A column on large screens; on phones and tablets a drawer opened with "Add step".
     <aside aria-label="Steps" className={clsx("flex w-60 shrink-0 flex-col border-r bg-surface",
@@ -72,10 +79,17 @@ function Palette({ specs, onAdd, open, onClose }: { specs: NodeSpec[]; onAdd: (s
         <span className="text-sm font-medium">Add a step</span>
         <button type="button" onClick={onClose} aria-label="Close steps" className="rounded-md p-1.5 text-muted hover:bg-raised hover:text-fg"><X className="h-4 w-4" /></button>
       </div>
+      {after && (
+        <div role="status" className="flex items-center justify-between gap-2 border-b bg-primary/10 px-3 py-2 text-xs">
+          <span className="min-w-0 truncate">Adding after <span className="font-medium">{after}</span>: pick a step</span>
+          <button type="button" onClick={onCancelAfter} className="shrink-0 text-muted hover:text-fg">Cancel</button>
+        </div>
+      )}
       <div className="border-b p-2.5">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted" aria-hidden />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search steps..." className="h-8 pl-8 text-xs" aria-label="Search steps" />
+          <Input ref={search} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search steps..." className="h-8 pl-8 text-xs" aria-label="Search steps"
+            onKeyDown={(e) => { if (e.key === "Enter" && shown.length > 0) { onAdd(shown[0]); setQ(""); } if (e.key === "Escape" && after) onCancelAfter(); }} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
@@ -173,9 +187,21 @@ function MailboxInfo({ mailbox }: { mailbox?: any }) {
   );
 }
 
-function NodePanel({ node, spec, issues, triggers, workflowId, onChange, onDelete, onDuplicate, onTriggersChanged }: {
-  node: WaeNode; spec: NodeSpec | undefined; issues: Issue[]; triggers: any; workflowId: string;
-  onChange: (patch: Partial<WaeNode["data"]>) => void; onDelete: () => void; onDuplicate: () => void; onTriggersChanged: () => void;
+function LastRun({ step }: { step?: any }) {
+  if (!step) return <p className="text-xs text-muted">Run a test to see what this step received and produced.</p>;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 text-xs"><StatusBadge status={step.status} /><span className="text-muted">{fmtDuration(step.duration_ms)}</span></div>
+      {step.error && <Code className="max-h-40">{JSON.stringify(step.error, null, 2)}</Code>}
+      {step.output != null && <details open={!step.error}><summary className="cursor-pointer text-2xs uppercase tracking-wider text-muted">Output</summary><Code className="mt-1 max-h-56">{JSON.stringify(step.output, null, 2)}</Code></details>}
+      {step.input != null && <details><summary className="cursor-pointer text-2xs uppercase tracking-wider text-muted">Input (resolved settings)</summary><Code className="mt-1 max-h-56">{JSON.stringify(step.input, null, 2)}</Code></details>}
+    </div>
+  );
+}
+
+function NodePanel({ node, spec, issues, triggers, workflowId, data, lastStep, onChange, onDelete, onDuplicate, onAddNext, onTriggersChanged }: {
+  node: WaeNode; spec: NodeSpec | undefined; issues: Issue[]; triggers: any; workflowId: string; data: DataOption[]; lastStep?: any;
+  onChange: (patch: Partial<WaeNode["data"]>) => void; onDelete: () => void; onDuplicate: () => void; onAddNext: () => void; onTriggersChanged: () => void;
 }) {
   const retry = node.data.settings?.retry ?? {};
   const setRetry = (patch: any) => onChange({ settings: { ...node.data.settings, retry: { ...retry, ...patch } } });
@@ -197,7 +223,7 @@ function NodePanel({ node, spec, issues, triggers, workflowId, onChange, onDelet
       <Field label="Step name"><Input value={node.data.name} onChange={(e) => onChange({ name: e.target.value })} maxLength={200} /></Field>
       {node.data.type === "trigger.mailbox" && <MailboxInfo mailbox={mailbox} />}
       {isEndpointTrigger && <TriggerInfo endpoint={endpoint} schedule={node.data.type === "trigger.schedule" ? schedule ?? { cron: node.data.config.cron, timezone: node.data.config.timezone ?? "UTC", is_active: false } : undefined} workflowId={workflowId} onChanged={onTriggersChanged} />}
-      {spec ? <SchemaForm schema={spec.config_schema} value={node.data.config} onChange={(config) => onChange({ config })} providers={spec.providers} />
+      {spec ? <SchemaForm schema={spec.config_schema} value={node.data.config} onChange={(config) => onChange({ config })} providers={spec.providers} data={data} />
         : <Notice tone="warning">This step type is not available in the node registry. Remove it to publish the workflow.</Notice>}
       {spec && (spec.category === "action" || spec.category === "ai") && (
         <div className="space-y-2.5 rounded-md border bg-bg p-2.5">
@@ -216,7 +242,12 @@ function NodePanel({ node, spec, issues, triggers, workflowId, onChange, onDelet
         Use this step's result in later steps as <span className="font-mono text-fg">{`{{ nodes.${node.id}.${outputs[0] ?? "field"} }}`}</span>
         {outputs.length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{outputs.map((o) => <span key={o} className="rounded-sm border px-1 font-mono text-2xs">{o}</span>)}</div>}
       </div>
-      <div className="flex gap-2">
+      <section aria-label="Last test run" className="rounded-md border bg-bg p-2.5">
+        <div className="mb-1.5 text-2xs font-medium uppercase tracking-wider text-muted">Last test run</div>
+        <LastRun step={lastStep} />
+      </section>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="primary" onClick={onAddNext}><Plus className="h-3.5 w-3.5" /> Add next step</Button>
         <Button size="sm" onClick={onDuplicate}><Copy className="h-3.5 w-3.5" /> Duplicate</Button>
         <Button size="sm" variant="danger" onClick={onDelete}><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
       </div>
@@ -274,7 +305,7 @@ function WorkflowPanel({ workflow, issues, dirty, onSelect, onReload }: { workfl
   );
 }
 
-function TestDialog({ open, onClose, workflowId, save, onStatus }: { open: boolean; onClose: () => void; workflowId: string; save: () => Promise<void>; onStatus: (s: Record<string, string>) => void }) {
+function TestDialog({ open, onClose, workflowId, save, onRun }: { open: boolean; onClose: () => void; workflowId: string; save: () => Promise<void>; onRun: (steps: any[]) => void }) {
   const [input, setInput] = useState("{}");
   const [execId, setExecId] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -283,12 +314,7 @@ function TestDialog({ open, onClose, workflowId, save, onStatus }: { open: boole
     queryKey: ["test-exec", execId], queryFn: () => api(`/executions/${execId}`), enabled: !!execId,
     refetchInterval: (q) => (q.state.data && ["COMPLETED", "FAILED", "CANCELLED", "WAITING"].includes((q.state.data as any).status) ? false : 1000),
   });
-  useEffect(() => {
-    if (!exec.data) return;
-    const map: Record<string, string> = {};
-    for (const s of exec.data.steps) map[s.node_id] = s.status;
-    onStatus(map);
-  }, [exec.data, onStatus]);
+  useEffect(() => { if (exec.data) onRun(exec.data.steps); }, [exec.data, onRun]);
   async function start() {
     setError(null);
     let parsed: unknown;
@@ -346,11 +372,53 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
   const [triggers, setTriggers] = useState<any>(workflow.triggers);
   const [message, setMessage] = useState<{ tone: "success" | "warning"; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
-  const [runStatus, setRunStatus] = useState<Record<string, string>>({});
+  const [lastRun, setLastRun] = useState<Record<string, any>>({}); // node id -> its latest step in the last test run
+  const onRun = useCallback((steps: any[]) => setLastRun(Object.fromEntries(steps.map((s) => [s.node_id, s]))), []);
+  const runStatus = useMemo(() => Object.fromEntries(Object.entries(lastRun).map(([k, s]) => [k, s.status])), [lastRun]);
+  const [after, setAfter] = useState<string | null>(null); // "Add next step": the step the new one connects from
+  const [shortcuts, setShortcuts] = useState(false);
   const revision = useRef<number>(workflow.draft_revision);
   const specMap = useMemo(() => Object.fromEntries(specs.map((s) => [s.type, s])), [specs]);
 
-  useEffect(() => { setNodes(initial.nodes); setEdges(initial.edges); setDirty(false); revision.current = workflow.draft_revision; setIssues(workflow.issues ?? []); setTriggers(workflow.triggers); }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ---------------------------------------------------------------- undo / redo
+  type Snap = { nodes: WaeNode[]; edges: Edge[] };
+  const nodesRef = useRef(nodes), edgesRef = useRef(edges);
+  nodesRef.current = nodes;
+  edgesRef.current = edges;
+  const past = useRef<Snap[]>([]), future = useRef<Snap[]>([]);
+  const lastRecord = useRef<{ key: string; at: number }>({ key: "", at: 0 });
+  const [, setHistoryTick] = useState(0);
+  const snap = (): Snap => ({ nodes: nodesRef.current.map((n) => ({ ...n, selected: false, data: structuredClone(n.data) })), edges: edgesRef.current.map((e) => ({ ...e })) });
+  /** Remember the state before a change. Typing into one step's settings is one undo step, not one per key. */
+  const record = (key = "") => {
+    const now = Date.now();
+    if (key && lastRecord.current.key === key && now - lastRecord.current.at < 1200) { lastRecord.current.at = now; return; }
+    lastRecord.current = { key, at: now };
+    past.current = [...past.current.slice(-99), snap()];
+    future.current = [];
+    setHistoryTick((t) => t + 1);
+  };
+  const restore = (from: React.MutableRefObject<Snap[]>, to: React.MutableRefObject<Snap[]>) => {
+    const prev = from.current[from.current.length - 1];
+    if (!prev) return;
+    from.current = from.current.slice(0, -1);
+    to.current = [...to.current, snap()];
+    lastRecord.current = { key: "", at: 0 };
+    setNodes(prev.nodes);
+    setEdges(prev.edges);
+    if (selected && !prev.nodes.some((n) => n.id === selected)) setSelected(null);
+    setDirty(true);
+    setHistoryTick((t) => t + 1);
+  };
+  const undo = () => restore(past, future);
+  const redo = () => restore(future, past);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    setNodes(initial.nodes); setEdges(initial.edges); setDirty(false); revision.current = workflow.draft_revision;
+    setIssues(workflow.issues ?? []); setTriggers(workflow.triggers);
+    past.current = []; future.current = []; // a reloaded draft (e.g. a restored version) starts a new history
+  }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { if (dirty) e.preventDefault(); };
     window.addEventListener("beforeunload", warn);
@@ -378,16 +446,25 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
   const touch = () => { setDirty(true); setMessage(null); };
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target || c.source === c.target) return;
+    record();
     setEdges((eds) => addEdge(makeEdge(c.source!, c.sourceHandle || "out", c.target!), eds.filter((e) => !(e.source === c.source && e.target === c.target && (e.sourceHandle || "out") === (c.sourceHandle || "out")))));
     touch();
-  }, [setEdges]);
+  }, [setEdges]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addNode = (spec: NodeSpec) => {
+    record();
     const id = newNodeId(spec.type, new Set(nodes.map((n) => n.id)));
     const defaults: Record<string, any> = {};
     for (const [k, p] of Object.entries<any>(spec.config_schema.properties ?? {})) if (p.default !== undefined && p.default !== null && typeof p.default !== "object") defaults[k] = p.default;
+    // "Add next step": connect from that step's main output.
+    const from = after ? nodes.find((n) => n.id === after) : undefined;
+    if (from && spec.category !== "trigger") {
+      const handle = handlesFor(specMap[from.data.type], from.data.config).find((h) => h !== "error") ?? "out";
+      setEdges((eds) => addEdge(makeEdge(from.id, handle, id), eds));
+    }
+    setAfter(null);
     // Next to the selected step, otherwise in the middle of the visible canvas; never on top of another step.
-    const anchor = nodes.find((n) => n.id === selected);
+    const anchor = from ?? nodes.find((n) => n.id === selected);
     let pos: { x: number; y: number };
     if (anchor) {
       pos = { x: anchor.position.x + NODE_W + 80, y: anchor.position.y };
@@ -406,13 +483,19 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
       const tl = rf.flowToScreenPosition(pos);
       const br = rf.flowToScreenPosition({ x: pos.x + NODE_W, y: pos.y + NODE_H });
       if (tl.x < box.left || tl.y < box.top || br.x > box.right || br.y > box.bottom) {
-        rf.setCenter(pos.x + NODE_W / 2, pos.y + NODE_H / 2, { zoom: rf.getZoom(), duration: 0 });
+        // Zoom out just enough to show the whole workflow, so the steps it connects to stay in view too.
+        // Computed from known positions and sizes: the new step is not measured by React Flow yet.
+        const all = [...nodes.map((n) => ({ ...n.position, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H })), { ...pos, w: NODE_W, h: NODE_H }];
+        const x0 = Math.min(...all.map((n) => n.x)), y0 = Math.min(...all.map((n) => n.y));
+        const bounds = { x: x0, y: y0, width: Math.max(...all.map((n) => n.x + n.w)) - x0, height: Math.max(...all.map((n) => n.y + n.h)) - y0 };
+        void rf.setViewport(getViewportForBounds(bounds, box.width, box.height, 0.2, 1, 0.15), { duration: 150 });
       }
     }
     setSelected(id);
     touch();
   };
   const patchNode = (id: string, patch: Partial<WaeNode["data"]>) => {
+    record(`patch:${id}:${Object.keys(patch).join(",")}`);
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)));
     if (patch.config) {
       // Drop connections whose output no longer exists (e.g. a removed switch case).
@@ -422,15 +505,114 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
     }
     touch();
   };
-  const removeNode = (id: string) => { setNodes((ns) => ns.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); setSelected(null); touch(); };
+  const removeNode = (id: string) => { record(); setNodes((ns) => ns.filter((n) => n.id !== id)); setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id)); setSelected(null); touch(); };
   const duplicate = (id: string) => {
     const src = nodes.find((n) => n.id === id);
     if (!src) return;
+    record();
     const nid = newNodeId(src.data.type, new Set(nodes.map((n) => n.id)));
     setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), { ...src, id: nid, selected: true, position: { x: src.position.x + 40, y: src.position.y + 60 }, data: structuredClone(src.data) }]);
     setSelected(nid);
     touch();
   };
+
+  // ---------------------------------------------------------------- copy / paste
+  const clipboard = useRef<{ nodes: WaeNode[]; edges: Edge[] } | null>(null);
+  const copySelection = () => {
+    const picked = nodes.filter((n) => n.selected || n.id === selected);
+    if (!picked.length) return false;
+    const ids = new Set(picked.map((n) => n.id));
+    clipboard.current = { nodes: picked.map((n) => ({ ...n, data: structuredClone(n.data) })), edges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)) };
+    try { void navigator.clipboard?.writeText(JSON.stringify({ wae_steps: toDefinition(clipboard.current.nodes, clipboard.current.edges) })); } catch { /* the in-app copy still works */ }
+    setMessage({ tone: "success", text: `Copied ${picked.length} ${picked.length === 1 ? "step" : "steps"}. Paste with Ctrl+V, here or in another workflow.` });
+    return true;
+  };
+  const paste = (incoming: { nodes: WaeNode[]; edges: Edge[] }) => {
+    if (!incoming.nodes.length) return;
+    record();
+    const taken = new Set(nodes.map((n) => n.id));
+    const rename: Record<string, string> = {};
+    for (const n of incoming.nodes) { const nid = newNodeId(n.data.type, taken); taken.add(nid); rename[n.id] = nid; }
+    // References between pasted steps ({{ nodes.old.x }}) follow the new ids.
+    const remap = (data: WaeNode["data"]) => {
+      let text = JSON.stringify(data);
+      for (const [o, nw] of Object.entries(rename)) text = text.replace(new RegExp(`nodes\\.${o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=[.\\s}\\[])`, "g"), `nodes.${nw}`);
+      return JSON.parse(text);
+    };
+    const added = incoming.nodes.map((n) => ({ ...n, id: rename[n.id], selected: true, position: { x: n.position.x + 60, y: n.position.y + 60 }, data: remap(n.data) }));
+    setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), ...added]);
+    setEdges((eds) => [...eds, ...incoming.edges.map((e) => makeEdge(rename[e.source], e.sourceHandle || "out", rename[e.target]))]);
+    setSelected(added.length === 1 ? added[0].id : null);
+    touch();
+    setMessage({ tone: "success", text: `Pasted ${added.length} ${added.length === 1 ? "step" : "steps"}.` });
+  };
+  const pasteFromClipboard = async () => {
+    if (clipboard.current) return paste(clipboard.current);
+    try {
+      const parsed = JSON.parse(await navigator.clipboard.readText());
+      if (parsed?.wae_steps) { const flow = toFlow(parsed.wae_steps as Definition); paste({ nodes: flow.nodes, edges: flow.edges }); }
+    } catch { /* nothing usable on the clipboard */ }
+  };
+
+  // ---------------------------------------------------------------- tidy layout
+  const tidy = () => {
+    record();
+    const ids = nodes.map((n) => n.id);
+    const incoming = new Map(ids.map((id) => [id, edges.filter((e) => e.target === id).map((e) => e.source)]));
+    const depth: Record<string, number> = {};
+    for (let pass = 0; pass < ids.length + 1; pass++) {  // longest path from the start, bounded for safety
+      let changed = false;
+      for (const id of ids) {
+        const d = Math.max(0, ...(incoming.get(id) ?? []).map((p) => (depth[p] ?? 0) + 1));
+        if (depth[id] !== d) { depth[id] = d; changed = true; }
+      }
+      if (!changed) break;
+    }
+    const columns: Record<number, WaeNode[]> = {};
+    for (const n of [...nodes].sort((a, b) => a.position.y - b.position.y)) (columns[depth[n.id] ?? 0] ??= []).push(n);
+    const place: Record<string, { x: number; y: number }> = {};
+    for (const [col, list] of Object.entries(columns)) {
+      let y = 80;
+      for (const n of list) {
+        place[n.id] = { x: 80 + Number(col) * (NODE_W + 100), y };
+        y += (n.measured?.height ?? NODE_H) + 56;
+      }
+    }
+    setNodes((ns) => ns.map((n) => ({ ...n, position: place[n.id] ?? n.position })));
+    touch();
+    requestAnimationFrame(() => rf.fitView({ padding: 0.3, maxZoom: 1, duration: 200 }));
+  };
+
+  // ---------------------------------------------------------------- data available to a step
+  const dataFor = useCallback((nid: string): DataOption[] => {
+    const parents = new Map<string, string[]>();
+    for (const e of edges) parents.set(e.target, [...(parents.get(e.target) ?? []), e.source]);
+    const order: string[] = [], seen = new Set<string>(), queue = [...(parents.get(nid) ?? [])];
+    while (queue.length) { const p = queue.shift()!; if (seen.has(p)) continue; seen.add(p); order.push(p); queue.push(...(parents.get(p) ?? [])); }
+    const typeOf = (id: string) => nodes.find((n) => n.id === id)?.data.type ?? "";
+    if (!order.some((p) => specMap[typeOf(p)]?.category === "trigger")) order.push(...nodes.filter((n) => specMap[n.data.type]?.category === "trigger").map((n) => n.id));
+    const out: DataOption[] = [];
+    for (const p of order) {
+      const node = nodes.find((n) => n.id === p);
+      if (!node) continue;
+      const spec = specMap[node.data.type];
+      const isTrigger = spec?.category === "trigger";
+      const base = isTrigger ? "trigger" : `nodes.${p}`;
+      const group = isTrigger ? `Trigger - ${node.data.name || spec?.label}` : node.data.name || spec?.label || p;
+      const sample = lastRun[p]?.output;
+      const found = new Map<string, unknown>();
+      if (!(isTrigger && node.data.type === "trigger.manual")) for (const k of Object.keys(spec?.output_schema?.properties ?? {})) found.set(`${base}.${k}`, sample?.[k]);
+      if (sample && typeof sample === "object") for (const s of samplePaths(base, sample)) found.set(s.path, s.sample);
+      for (const [path, value] of found) out.push({ group, label: path.slice(base.length + 1), path, sample: value });
+    }
+    if (order.some((p) => typeOf(p) === "logic.loop")) {
+      out.push({ group: "Loop", label: "item", path: "loop.item" }, { group: "Loop", label: "index", path: "loop.index" });
+    }
+    for (const [k, v] of Object.entries<any>(workflow.variables ?? {})) out.push({ group: "Variables", label: k, path: `vars.${k}`, sample: v });
+    out.push({ group: "Run", label: "now", path: "now" }, { group: "Run", label: "execution id", path: "execution.id" },
+      { group: "Run", label: "resume URL", path: "execution.resume_url" });
+    return out;
+  }, [edges, nodes, specMap, lastRun, workflow.variables]);
 
   const saveMut = useMutation({
     mutationFn: () => api(`/workflows/${workflow.id}/draft`, { method: "PUT", body: { definition: toDefinition(nodes, edges), base_revision: revision.current } }),
@@ -445,8 +627,31 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
   const toggle = useMutation({ mutationFn: () => api(`/workflows/${workflow.id}/${workflow.is_active ? "deactivate" : "activate"}`, { method: "POST" }),
     onSuccess: async () => { await reload(); qc.invalidateQueries({ queryKey: [key, "workflows"] }); } });
 
+  // ---------------------------------------------------------------- keyboard
+  const keys = useRef({ undo, redo, save: () => saveMut.mutate(), copySelection, pasteFromClipboard, duplicate, selected, dirty, tidy });
+  keys.current = { undo, redo, save: () => saveMut.mutate(), copySelection, pasteFromClipboard, duplicate, selected, dirty, tidy };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const k = keys.current;
+      const mod = e.ctrlKey || e.metaKey;
+      const typing = e.target instanceof HTMLElement && (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) || e.target.isContentEditable);
+      const inDialog = e.target instanceof HTMLElement && !!e.target.closest("dialog");
+      if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); if (k.dirty) k.save(); return; }
+      if (typing || inDialog) return; // text fields keep their own undo, copy and paste
+      if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) k.redo(); else k.undo(); }
+      else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); k.redo(); }
+      else if (mod && e.key.toLowerCase() === "c") { if (k.copySelection()) e.preventDefault(); }
+      else if (mod && e.key.toLowerCase() === "v") { e.preventDefault(); void k.pasteFromClipboard(); }
+      else if (mod && e.key.toLowerCase() === "d") { if (k.selected) { e.preventDefault(); k.duplicate(k.selected); } }
+      else if (!mod && e.key === "?") { e.preventDefault(); setShortcuts(true); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const sel = nodes.find((n) => n.id === selected) ?? null;
   const errors = issues.filter((i) => i.level === "error").length;
+  const selData = useMemo(() => (selected ? dataFor(selected) : []), [selected, dataFor]);
   const ctx = useMemo(() => ({ specs: specMap, issues, runStatus }), [specMap, issues, runStatus]);
   const failure = saveMut.error ?? publish.error ?? toggle.error;
 
@@ -465,6 +670,12 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {errors > 0 && <button type="button" onClick={() => setSelected(null)} className="flex items-center gap-1 text-xs text-danger hover:underline"><AlertTriangle className="h-3.5 w-3.5" /> {errors} {errors === 1 ? "error" : "errors"}</button>}
+            <div className="flex items-center rounded-md border max-lg:hidden" role="group" aria-label="Edit">
+              <button type="button" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={past.current.length === 0} onClick={undo} className="p-1.5 text-muted hover:text-fg disabled:opacity-40"><Undo2 className="h-4 w-4" /></button>
+              <button type="button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={future.current.length === 0} onClick={redo} className="border-l p-1.5 text-muted hover:text-fg disabled:opacity-40"><Redo2 className="h-4 w-4" /></button>
+              <button type="button" aria-label="Tidy up" title="Tidy up the layout" disabled={nodes.length < 2} onClick={tidy} className="border-l p-1.5 text-muted hover:text-fg disabled:opacity-40"><LayoutGrid className="h-4 w-4" /></button>
+              <button type="button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" onClick={() => setShortcuts(true)} className="border-l p-1.5 text-muted hover:text-fg max-lg:hidden"><Keyboard className="h-4 w-4" /></button>
+            </div>
             <Link href={`/executions?workflow_id=${workflow.id}`}><Button size="sm" variant="ghost"><History className="h-3.5 w-3.5" /> History</Button></Link>
             <Button size="sm" loading={saveMut.isPending} disabled={!dirty} onClick={() => saveMut.mutate()}><Save className="h-3.5 w-3.5" /> Save draft</Button>
             <Button size="sm" onClick={() => setTesting(true)}><FlaskConical className="h-3.5 w-3.5" /> Test</Button>
@@ -477,18 +688,31 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
             {failure ? errorMessage(failure) : message!.text}
           </div>
         )}
-        <div className="flex shrink-0 gap-2 border-b bg-surface px-4 py-2 lg:hidden">
+        <div className="flex shrink-0 items-center gap-2 border-b bg-surface px-4 py-2 lg:hidden">
           <Button size="sm" onClick={() => setSheet("steps")}><Plus className="h-3.5 w-3.5" /> Add step</Button>
           <Button size="sm" variant="ghost" onClick={() => setSheet("details")}>Workflow details{errors > 0 ? ` (${errors})` : ""}</Button>
+          <div className="ml-auto flex items-center" role="group" aria-label="Edit on small screens">
+            <button type="button" aria-label="Undo" disabled={past.current.length === 0} onClick={undo} className="p-1.5 text-muted disabled:opacity-40"><Undo2 className="h-4 w-4" /></button>
+            <button type="button" aria-label="Redo" disabled={future.current.length === 0} onClick={redo} className="p-1.5 text-muted disabled:opacity-40"><Redo2 className="h-4 w-4" /></button>
+            <button type="button" aria-label="Tidy up" disabled={nodes.length < 2} onClick={tidy} className="p-1.5 text-muted disabled:opacity-40"><LayoutGrid className="h-4 w-4" /></button>
+          </div>
         </div>
         <div className="relative flex min-h-0 flex-1">
           {sheet === "steps" && <div className="fixed inset-0 z-30 bg-black/60 lg:hidden" onClick={() => setSheet(null)} aria-hidden />}
-          <Palette specs={specs} open={sheet === "steps"} onClose={() => setSheet(null)} onAdd={(s) => { addNode(s); setSheet(null); }} />
+          <Palette specs={specs} open={sheet === "steps"} onClose={() => { setSheet(null); setAfter(null); }} onAdd={(s) => { addNode(s); setSheet(null); }}
+            after={after ? (nodes.find((n) => n.id === after)?.data.name || after) : null} onCancelAfter={() => { setAfter(null); setSheet(null); }} />
           <div className="min-w-0 flex-1">
             <ReactFlow
               nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ maxZoom: 1, padding: 0.3 }} minZoom={0.2} colorMode="dark"
-              onNodesChange={(c) => { onNodesChange(c); if (c.some((x) => x.type === "position" && x.dragging === false || x.type === "remove")) touch(); }}
-              onEdgesChange={(c) => { onEdgesChange(c); if (c.some((x) => x.type === "remove")) touch(); }}
+              onNodesChange={(c) => {
+                if (c.some((x) => x.type === "remove")) record();
+                const moving = c.some((x) => x.type === "position" && x.dragging);
+                if (moving && !dragging.current) { record(); dragging.current = true; } // one undo step per drag
+                if (c.some((x) => x.type === "position" && x.dragging === false)) dragging.current = false;
+                onNodesChange(c);
+                if (c.some((x) => x.type === "position" && x.dragging === false || x.type === "remove")) touch();
+              }}
+              onEdgesChange={(c) => { if (c.some((x) => x.type === "remove")) record(); onEdgesChange(c); if (c.some((x) => x.type === "remove")) touch(); }}
               onConnect={onConnect}
               onNodesDelete={(deleted) => { if (deleted.some((n) => n.id === selected)) setSelected(null); }}
               onSelectionChange={({ nodes: s }) => setSelected(s.length === 1 ? s[0].id : null)}
@@ -509,7 +733,9 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
             </div>
             {sel ? (
               <NodePanel node={sel} spec={specMap[sel.data.type]} issues={issues.filter((i) => i.node_id === sel.id)} triggers={triggers} workflowId={workflow.id}
+                data={selData} lastStep={lastRun[sel.id]}
                 onChange={(p) => patchNode(sel.id, p)} onDelete={() => removeNode(sel.id)} onDuplicate={() => duplicate(sel.id)}
+                onAddNext={() => { setAfter(sel.id); setSheet("steps"); }}
                 onTriggersChanged={async () => { const w = await api(`/workflows/${workflow.id}`); setTriggers(w.triggers); }} />
             ) : (
               <WorkflowPanel workflow={workflow} issues={issues} dirty={dirty} onReload={() => reload()}
@@ -518,7 +744,16 @@ function Editor({ workflow, specs, reload }: { workflow: any; specs: NodeSpec[];
           </aside>
         </div>
       </div>
-      <TestDialog open={testing} onClose={() => setTesting(false)} workflowId={workflow.id} save={save} onStatus={setRunStatus} />
+      <TestDialog open={testing} onClose={() => setTesting(false)} workflowId={workflow.id} save={save} onRun={onRun} />
+      <Dialog open={shortcuts} onClose={() => setShortcuts(false)} title="Keyboard shortcuts" footer={<Button onClick={() => setShortcuts(false)}>Close</Button>}>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+          {[["Ctrl + S", "Save the draft"], ["Ctrl + Z", "Undo"], ["Ctrl + Shift + Z", "Redo"], ["Ctrl + C / Ctrl + V", "Copy and paste the selected steps (also into another workflow)"],
+            ["Ctrl + D", "Duplicate the selected step"], ["Delete", "Delete the selected steps or connection"], ["Shift + drag", "Select several steps"],
+            ["Enter in step search", "Add the first matching step"], ["?", "Show this list"]].map(([k, v]) => (
+            <div key={k} className="contents"><dt><kbd className="rounded border bg-bg px-1.5 py-0.5 font-mono text-xs">{k}</kbd></dt><dd className="text-muted">{v}</dd></div>))}
+        </dl>
+        <p className="text-xs text-muted">On a Mac use Cmd instead of Ctrl.</p>
+      </Dialog>
     </Ctx.Provider>
   );
 }

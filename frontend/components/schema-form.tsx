@@ -9,9 +9,10 @@ import { api } from "@/lib/api";
 import { useOrgKey } from "@/lib/session";
 import { titleCase } from "@/lib/format";
 import { Button, Checkbox, Field, Input, Select, Textarea } from "./ui";
+import { DataInput, type DataOption } from "./data-picker";
 
 type Schema = Record<string, any>;
-type Ctx = { root: Schema; providers?: string[] };
+type Ctx = { root: Schema; providers?: string[]; data?: DataOption[] };
 
 const LONG_TEXT = new Set(["body", "text", "prompt", "system", "content", "summary", "instructions", "html", "system_instructions", "context", "instruction", "description", "question"]);
 
@@ -167,7 +168,12 @@ function Control({ name, schema, value, onChange, ctx, res }: { name: string; sc
     return <Input inputMode="decimal" value={show(value ?? s.default)} onChange={(e) => onChange(parseLoose(e.target.value))} placeholder={s.default !== undefined ? String(s.default) : ""} />;
   }
   if (s.type === "string") {
-    if (s["x-multiline"] || LONG_TEXT.has(name)) return <Textarea value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={s.default ?? ""} />;
+    const multiline = Boolean(s["x-multiline"] || LONG_TEXT.has(name));
+    if (ctx.data?.length) {
+      return <DataInput value={value ?? ""} multiline={multiline} options={ctx.data} placeholder={s.default != null ? String(s.default) : ""}
+        onChange={(v) => onChange(v === "" && !multiline ? undefined : v)} />;
+    }
+    if (multiline) return <Textarea value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder={s.default ?? ""} />;
     return <Input value={value ?? ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)} placeholder={s.default !== undefined && s.default !== null ? String(s.default) : ""} />;
   }
   if (s.type === "array") {
@@ -201,12 +207,13 @@ function Control({ name, schema, value, onChange, ctx, res }: { name: string; sc
     );
   }
   if (s.type === "object" && s.properties) return <div className="rounded-md border bg-bg p-2.5"><SchemaFields schema={s} value={value ?? {}} onChange={onChange} ctx={ctx} res={res} /></div>;
-  if (s.type === "object") return <KeyValues value={value} onChange={onChange} />;
+  if (s.type === "object") return <KeyValues value={value} onChange={onChange} data={ctx.data} />;
   // Untyped ("any") values: free text that may be a template or JSON.
+  if (ctx.data?.length) return <DataInput value={show(value)} onChange={(v) => onChange(parseLoose(v))} options={ctx.data} placeholder="Value, template or JSON" className="font-mono text-xs" />;
   return <Input value={show(value)} onChange={(e) => onChange(parseLoose(e.target.value))} placeholder="Value, template or JSON" className="font-mono text-xs" />;
 }
 
-function KeyValues({ value, onChange }: { value: any; onChange: (v: any) => void }) {
+function KeyValues({ value, onChange, data }: { value: any; onChange: (v: any) => void; data?: DataOption[] }) {
   if (typeof value === "string") return <Input value={value} onChange={(e) => onChange(parseLoose(e.target.value))} className="font-mono text-xs" />;
   const entries = Object.entries((value as Record<string, unknown>) ?? {});
   const commit = (rows: [string, unknown][]) => onChange(Object.fromEntries(rows));
@@ -215,7 +222,9 @@ function KeyValues({ value, onChange }: { value: any; onChange: (v: any) => void
       {entries.map(([k, v], i) => (
         <div key={i} className="grid grid-cols-[2fr_3fr_auto] gap-1.5">
           <Input value={k} aria-label="Key" placeholder="field" className="h-8 font-mono text-xs" onChange={(e) => commit(entries.map((r, j) => (j === i ? [e.target.value, r[1]] : r)))} />
-          <Input value={show(v)} aria-label="Value" placeholder="value or {{ template }}" className="h-8 font-mono text-xs" onChange={(e) => commit(entries.map((r, j) => (j === i ? [r[0], parseLoose(e.target.value) ?? ""] : r)))} />
+          {data?.length ? <DataInput value={show(v)} aria-label="Value" placeholder="value or {{ template }}" className="h-8 font-mono text-xs" options={data}
+            onChange={(nv) => commit(entries.map((r, j) => (j === i ? [r[0], parseLoose(nv) ?? ""] : r)))} />
+            : <Input value={show(v)} aria-label="Value" placeholder="value or {{ template }}" className="h-8 font-mono text-xs" onChange={(e) => commit(entries.map((r, j) => (j === i ? [r[0], parseLoose(e.target.value) ?? ""] : r)))} />}
           <Button size="sm" variant="ghost" aria-label="Remove field" onClick={() => commit(entries.filter((_, j) => j !== i))}><Trash2 className="h-3.5 w-3.5" /></Button>
         </div>
       ))}
@@ -252,7 +261,9 @@ function SchemaFields({ schema, value, onChange, ctx, res }: { schema: Schema; v
   );
 }
 
-export function SchemaForm({ schema, value, onChange, providers }: { schema: Schema; value: Record<string, any>; onChange: (v: Record<string, any>) => void; providers?: string[] }) {
+export function SchemaForm({ schema, value, onChange, providers, data }: {
+  schema: Schema; value: Record<string, any>; onChange: (v: Record<string, any>) => void; providers?: string[]; data?: DataOption[];
+}) {
   const res = useResources();
-  return <SchemaFields schema={schema} value={value ?? {}} onChange={onChange} ctx={{ root: schema, providers }} res={res} />;
+  return <SchemaFields schema={schema} value={value ?? {}} onChange={onChange} ctx={{ root: schema, providers, data }} res={res} />;
 }

@@ -120,6 +120,9 @@ export class BuilderPage {
   async connect(from: string, to: string, handle = "out") {
     const src = this.node(from).locator(`.react-flow__handle.source[data-handleid="${handle}"]`);
     const dst = this.node(to).locator(".react-flow__handle.target");
+    // The canvas may still be gliding to show a newly added step: wait until it has settled.
+    let prev = "";
+    await expect.poll(async () => { const now = JSON.stringify(await src.boundingBox()); const same = now === prev; prev = now; return same; }, { intervals: [120] }).toBe(true);
     const a = (await src.boundingBox())!;
     const b = (await dst.boundingBox())!;
     await this.page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
